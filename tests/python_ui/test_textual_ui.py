@@ -414,6 +414,17 @@ def test_non_assistant_chat_line_keeps_final_state_suffix() -> None:
     assert "(waiting_for_user)" in plain_text
 
 
+def test_reasoning_chat_line_uses_thinking_label() -> None:
+    fake_bridge = FakeBridge()
+    app = build_app(fake_bridge)
+
+    reasoning_line = app._build_chat_line("assistant", "planning next step", None, "reasoning")
+    plain_text = extract_chat_line_text(reasoning_line)
+
+    assert "thinking: planning next step" in plain_text
+    assert "agent: planning next step" not in plain_text
+
+
 @pytest.mark.asyncio
 async def test_welcome_hides_after_submit() -> None:
     fake_bridge = FakeBridge()

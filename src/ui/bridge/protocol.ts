@@ -44,6 +44,7 @@ export type BridgeState = z.infer<typeof bridgeStateSchema>;
 
 export const initialChatMessageSchema = z.object({
   finalState: z.string().optional(),
+  kind: z.enum(["message", "reasoning"]).optional(),
   role: chatRoleSchema,
   text: z.string(),
   timestamp: z.number().int().nonnegative(),
@@ -73,6 +74,7 @@ export const bridgeEventSchema = z.discriminatedUnion("type", [
   z.object({
     chunk: z.enum(["delta", "end", "start"]).optional(),
     finalState: z.string().optional(),
+    kind: z.enum(["message", "reasoning"]).optional(),
     role: chatRoleSchema,
     streamId: z.string().min(1).optional(),
     text: z.string(),

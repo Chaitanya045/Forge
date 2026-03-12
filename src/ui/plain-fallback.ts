@@ -42,6 +42,9 @@ function createPlainStreamObserver(config: AgentConfig): AgentObserver | undefin
     onExecutorStreamToken: (event) => {
       process.stdout.write(event.token);
     },
+    onPlannerReasoning: (event) => {
+      process.stdout.write(`\n\n[thinking]\n${event.reasoning}\n`);
+    },
     onPlannerStreamEnd: () => {
       process.stdout.write("\n");
     },

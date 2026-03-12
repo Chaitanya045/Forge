@@ -515,6 +515,10 @@ export async function runAgentLoop(
         plannerSchemaStrict: config.plannerSchemaStrict,
         stream: config.stream,
       });
+      observer?.onPlannerReasoning?.({
+        reasoning: planResult.reasoning,
+        step: stepNumber,
+      });
       await emitPlannerTelemetry({
         config,
         observer,

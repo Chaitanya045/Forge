@@ -9,18 +9,28 @@ from rich.text import Text
 
 class ChatItem(TypedDict):
     final_state: str | None
+    kind: str | None
     role: str
     text: str
 
 
-def build_chat_line(role: str, text: str, final_state: str | None, edge_padding: int) -> Align:
+def build_chat_line(
+    role: str,
+    text: str,
+    final_state: str | None,
+    edge_padding: int,
+    kind: str | None = None,
+) -> Align:
     line = Text()
     alignment = "left"
     label_style = "#6A737D"
     label = "system"
     content: Text | Padding = line
 
-    if role == "user":
+    if kind == "reasoning":
+        label_style = "#9AA0A6"
+        label = "thinking"
+    elif role == "user":
         alignment = "right"
         label_style = "#4EA5FF"
         label = "you"
@@ -48,6 +58,7 @@ def apply_stream_chat_chunk(
     role: str,
     text: str,
     final_state: Optional[str],
+    kind: Optional[str],
     stream_id: str,
     chunk: str,
 ) -> bool:
@@ -55,6 +66,7 @@ def apply_stream_chat_chunk(
         chat_items.append(
             {
                 "final_state": None,
+                "kind": kind,
                 "role": role,
                 "text": text,
             }
@@ -67,6 +79,7 @@ def apply_stream_chat_chunk(
         chat_items.append(
             {
                 "final_state": final_state,
+                "kind": kind,
                 "role": role,
                 "text": text,
             }

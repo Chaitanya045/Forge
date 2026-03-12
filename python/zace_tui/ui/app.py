@@ -206,10 +206,17 @@ class ZaceTextualApp(App[None]):
 
         if isinstance(event, ChatMessageEvent):
             if event.streamId and event.chunk in {"start", "delta", "end"}:
-                self._handle_streaming_chat_event(event.role, event.text, event.finalState, event.streamId, event.chunk)
+                self._handle_streaming_chat_event(
+                    event.role,
+                    event.text,
+                    event.finalState,
+                    event.kind,
+                    event.streamId,
+                    event.chunk,
+                )
                 return
 
-            self._append_chat(event.role, event.text, event.finalState)
+            self._append_chat(event.role, event.text, event.finalState, event.kind)
             return
 
         if isinstance(event, ToolStatusEvent):
@@ -629,7 +636,13 @@ class ZaceTextualApp(App[None]):
 
         tool_strip.update("active tool: idle")
 
-    def _append_chat(self, role: str, text: str, final_state: str | None = None) -> None:
+    def _append_chat(
+        self,
+        role: str,
+        text: str,
+        final_state: str | None = None,
+        kind: str | None = None,
+    ) -> None:
         if self._show_welcome:
             self._show_welcome = False
             self._render_layout_state()
@@ -637,6 +650,7 @@ class ZaceTextualApp(App[None]):
         self._chat_items.append(
             {
                 "final_state": final_state,
+                "kind": kind,
                 "role": role,
                 "text": text,
             }
@@ -648,6 +662,7 @@ class ZaceTextualApp(App[None]):
         role: str,
         text: str,
         final_state: Optional[str],
+        kind: Optional[str],
         stream_id: str,
         chunk: str,
     ) -> None:
@@ -661,6 +676,7 @@ class ZaceTextualApp(App[None]):
             role,
             text,
             final_state,
+            kind,
             stream_id,
             chunk,
         ):
@@ -679,7 +695,8 @@ class ZaceTextualApp(App[None]):
             role = item.get("role", "assistant") or "assistant"
             text = item.get("text", "") or ""
             final_state = item.get("final_state")
-            log.write(self._build_chat_line(role, text, final_state), expand=True)
+            kind = item.get("kind")
+            log.write(self._build_chat_line(role, text, final_state, kind), expand=True)
             if index < total_items - 1:
                 log.write("", expand=True)
 
@@ -716,5 +733,17 @@ class ZaceTextualApp(App[None]):
         self._chat_scrollbar_hide_timer = None
         chat_log.remove_class("scroll-active")
 
-    def _build_chat_line(self, role: str, text: str, final_state: str | None) -> Align:
-        return build_chat_line(role=role, text=text, final_state=final_state, edge_padding=self.CHAT_EDGE_PADDING)
+    def _build_chat_line(
+        self,
+        role: str,
+        text: str,
+        final_state: str | None,
+        kind: str | None = None,
+    ) -> Align:
+        return build_chat_line(
+            role=role,
+            text=text,
+            final_state=final_state,
+            edge_padding=self.CHAT_EDGE_PADDING,
+            kind=kind,
+        )

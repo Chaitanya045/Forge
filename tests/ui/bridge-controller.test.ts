@@ -510,6 +510,71 @@ describe("BridgeController command orchestration", () => {
     }
   });
 
+  test("streams planner reasoning before assistant message", async () => {
+    const sessionId = `bridge-reasoning-${Math.random().toString(36).slice(2, 10)}`;
+    const sessionPath = getSessionFilePath(sessionId);
+    const sessionMetaPath = sessionPath.replace(/\\.jsonl$/u, ".meta.json");
+    const events: BridgeEvent[] = [];
+    let callCount = 0;
+
+    const controller = new BridgeController({
+      client: {
+        chat: async () => {
+          callCount += 1;
+          if (callCount === 1) {
+            return {
+              content: JSON.stringify({
+                action: "ask_user",
+                reasoning: "Need clarification.",
+                userMessage: "Which file should I edit?",
+              }),
+            };
+          }
+
+          return {
+            content: `{\"titles\":[{\"sessionId\":\"${sessionId}\",\"title\":\"Reasoning test\"}]}`,
+          };
+        },
+      } as unknown as LlmClient,
+      config: createRuntimeControllerConfig(),
+      emitEvent: (event) => {
+        events.push(event);
+      },
+      sessionFilePath: sessionPath,
+      sessionId,
+    });
+
+    try {
+      await controller.submit({
+        kind: "message",
+        text: "hello",
+      });
+
+      const chatEvents = events.filter(
+        (event): event is Extract<BridgeEvent, { type: "chat_message" }> =>
+          event.type === "chat_message"
+      );
+      const reasoningStartIndex = chatEvents.findIndex(
+        (event) => event.kind === "reasoning" && event.chunk === "start"
+      );
+      const assistantStartIndex = chatEvents.findIndex(
+        (event) => event.role === "assistant" && event.chunk === "start" && event.kind !== "reasoning"
+      );
+      expect(reasoningStartIndex).toBeGreaterThanOrEqual(0);
+      expect(assistantStartIndex).toBeGreaterThanOrEqual(0);
+      expect(reasoningStartIndex).toBeLessThan(assistantStartIndex);
+
+      const reasoningText = chatEvents
+        .filter((event) => event.kind === "reasoning" && event.chunk === "delta")
+        .map((event) => event.text)
+        .join("");
+      expect(reasoningText).toContain("Need clarification.");
+    } finally {
+      await unlink(sessionPath).catch(() => undefined);
+      await unlink(sessionMetaPath).catch(() => undefined);
+    }
+  });
+
   test("background title generation is non-blocking for first-turn submit", async () => {
     const sessionId = `bridge-title-non-blocking-${Math.random().toString(36).slice(2, 10)}`;
     const sessionPath = getSessionFilePath(sessionId);

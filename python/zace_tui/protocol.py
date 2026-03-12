@@ -21,6 +21,7 @@ class ZaceProtocolModel(BaseModel):
 
 class InitialChatMessage(ZaceProtocolModel):
     finalState: str | None = None
+    kind: Literal["message", "reasoning"] | None = None
     role: Literal["assistant", "system", "user"]
     text: str
     timestamp: int = Field(ge=0)

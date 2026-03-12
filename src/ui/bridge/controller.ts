@@ -113,6 +113,7 @@ export class BridgeController {
   private approvedPermissionsOnce: Array<{ pattern: string; permission: string }> = [];
   private queuedResolutionNotes: string[] = [];
   private assistantStreamCounter = 0;
+  private streamQueue: Promise<void> = Promise.resolve();
 
   constructor(input: BridgeControllerInput) {
     this.client = input.client;
@@ -193,6 +194,13 @@ export class BridgeController {
     this.approvedPermissionsOnce = [];
     this.queuedResolutionNotes = [];
     this.assistantStreamCounter = 0;
+    this.streamQueue = Promise.resolve();
+  }
+
+  private enqueueStream(task: () => Promise<void>): Promise<void> {
+    const next = this.streamQueue.then(task).catch(() => undefined);
+    this.streamQueue = next;
+    return next;
   }
 
   private async loadActiveSession(): Promise<InitResult> {
@@ -402,10 +410,12 @@ export class BridgeController {
   private emitChatMessage(
     role: "assistant" | "system" | "user",
     text: string,
-    finalState?: string
+    finalState?: string,
+    kind?: "message" | "reasoning"
   ): void {
     this.emitEvent({
       finalState,
+      kind,
       role,
       text,
       timestamp: Date.now(),
@@ -441,6 +451,44 @@ export class BridgeController {
     this.emitEvent({
       chunk: "end",
       finalState,
+      role: "assistant",
+      streamId,
+      text: "",
+      timestamp: Date.now(),
+      type: "chat_message",
+    });
+  }
+
+  private async emitReasoningMessage(text: string): Promise<void> {
+    const streamId = `reasoning-${String(Date.now())}-${String(this.assistantStreamCounter)}`;
+    this.assistantStreamCounter += 1;
+
+    this.emitEvent({
+      chunk: "start",
+      kind: "reasoning",
+      role: "assistant",
+      streamId,
+      text: "",
+      timestamp: Date.now(),
+      type: "chat_message",
+    });
+
+    for (const chunk of splitForStreaming(text)) {
+      this.emitEvent({
+        chunk: "delta",
+        kind: "reasoning",
+        role: "assistant",
+        streamId,
+        text: chunk,
+        timestamp: Date.now(),
+        type: "chat_message",
+      });
+      await delay(ASSISTANT_STREAM_DELAY_MS);
+    }
+
+    this.emitEvent({
+      chunk: "end",
+      kind: "reasoning",
       role: "assistant",
       streamId,
       text: "",
@@ -654,6 +702,9 @@ export class BridgeController {
           type: "error",
         });
       },
+      onPlannerReasoning: (event) => {
+        void this.enqueueStream(() => this.emitReasoningMessage(event.reasoning));
+      },
       onStepStart: (event) => {
         this.updateState({
           stepLabel: `step:${String(event.step)}/${String(event.maxSteps)}`,
@@ -719,7 +770,7 @@ export class BridgeController {
         user: message,
       });
 
-      await this.emitAssistantMessage(result.message, result.finalState);
+      await this.enqueueStream(() => this.emitAssistantMessage(result.message, result.finalState));
       this.updateState({
         runState: result.finalState,
         turnCount: this.turns.length,

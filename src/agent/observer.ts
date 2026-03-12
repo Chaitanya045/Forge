@@ -46,6 +46,11 @@ export interface AgentExecutorTokenEvent {
   toolName: string;
 }
 
+export interface AgentPlannerReasoningEvent {
+  reasoning: string;
+  step: number;
+}
+
 export interface AgentStepStartEvent {
   maxSteps: number;
   step: number;
@@ -78,6 +83,7 @@ export interface AgentObserver {
   onExecutorStreamEnd?: (event: AgentExecutorStreamEvent) => void;
   onExecutorStreamStart?: (event: AgentExecutorStreamEvent) => void;
   onExecutorStreamToken?: (event: AgentExecutorTokenEvent) => void;
+  onPlannerReasoning?: (event: AgentPlannerReasoningEvent) => void;
   onPlannerStreamEnd?: () => void;
   onPlannerStreamStart?: () => void;
   onPlannerStreamToken?: (token: string) => void;

@@ -29,6 +29,7 @@ class BridgeState(ZaceUiModel):
 class ChatMessageEvent(ZaceUiModel):
     chunk: Literal["delta", "end", "start"] | None = None
     finalState: str | None = None
+    kind: Literal["message", "reasoning"] | None = None
     role: Literal["assistant", "system", "user"]
     streamId: str | None = None
     text: str
