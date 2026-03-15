@@ -17,21 +17,44 @@ function hasCommand(command: string): boolean {
 }
 
 function ensureTextualRuntimeAvailable(projectRoot: string): void {
+  const processEnv = getProcessEnvironmentSnapshot();
+
   if (!hasCommand("uv")) {
     throw new Error(
-      "Interactive UI requires `uv`. Install uv and run `uv sync` in the Zace repository."
+      "Interactive UI requires `uv`. Install uv and run `uv sync --python 3.11` in the Zace repository."
+    );
+  }
+
+  const pythonVersionCheck = spawnProcessSync(
+    "uv",
+    [
+      "run",
+      "python",
+      "-c",
+      "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+    ],
+    {
+      cwd: projectRoot,
+      env: processEnv,
+      stdio: "ignore",
+    }
+  );
+
+  if (pythonVersionCheck.status !== 0) {
+    throw new Error(
+      "Interactive UI requires Python 3.11+. Run `uv sync --python 3.11` in the Zace repository and retry."
     );
   }
 
   const textualCheck = spawnProcessSync("uv", ["run", "python", "-c", "import textual"], {
     cwd: projectRoot,
-    env: getProcessEnvironmentSnapshot(),
+    env: processEnv,
     stdio: "ignore",
   });
 
   if (textualCheck.status !== 0) {
     throw new Error(
-      "Interactive UI requires Python dependencies (Textual). Run `uv sync` and retry."
+      "Interactive UI requires Python dependencies (Textual). Run `uv sync --python 3.11` and retry."
     );
   }
 }
@@ -83,7 +106,7 @@ export async function runChatUi(input: RunChatUiInput): Promise<void> {
     child.once("error", (error) => {
       reject(
         new Error(
-          `Failed to launch Textual UI: ${error.message}. Ensure Python + uv are installed and run \`uv sync\`.`
+          `Failed to launch Textual UI: ${error.message}. Ensure Python 3.11+ and uv are installed, then run \`uv sync --python 3.11\`.`
         )
       );
     });

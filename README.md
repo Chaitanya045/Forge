@@ -27,7 +27,7 @@ It runs as a planner-executor loop where the model decides the next action and a
 ## Requirements
 
 - Bun (1.3+ recommended)
-- Python (3.9+)
+- Python (3.11+)
 - uv
 - OpenRouter API key + model
 
@@ -37,7 +37,7 @@ It runs as a planner-executor loop where the model decides the next action and a
 
 ```bash
 bun install
-uv sync
+uv sync --python 3.11
 ```
 
 2. Configure environment variables (for example in `.env`):
