@@ -117,13 +117,13 @@ Screen {
 }
 
 .theme-zace #chat_log.scroll-active {
-  scrollbar-background: #88D49833;
-  scrollbar-background-active: #88D49855;
-  scrollbar-background-hover: #88D49855;
+  scrollbar-background: transparent;
+  scrollbar-background-active: transparent;
+  scrollbar-background-hover: transparent;
   scrollbar-color: #88D498CC;
   scrollbar-color-active: #2BEE8C;
   scrollbar-color-hover: #88D498;
-  scrollbar-corner-color: #88D49822;
+  scrollbar-corner-color: transparent;
 }
 
 .theme-zace #welcome_logo {
@@ -251,13 +251,13 @@ Screen {
 }
 
 .theme-pastel #chat_log.scroll-active {
-  scrollbar-background: #b7a7d433;
-  scrollbar-background-active: #b7a7d455;
-  scrollbar-background-hover: #b7a7d455;
+  scrollbar-background: transparent;
+  scrollbar-background-active: transparent;
+  scrollbar-background-hover: transparent;
   scrollbar-color: #b7a7d4cc;
   scrollbar-color-active: #7f6aa6;
   scrollbar-color-hover: #9a86bf;
-  scrollbar-corner-color: #b7a7d422;
+  scrollbar-corner-color: transparent;
 }
 
 .theme-pastel #tool_strip {
@@ -342,13 +342,13 @@ Screen {
 }
 
 .theme-ocean #chat_log.scroll-active {
-  scrollbar-background: #3d6fa133;
-  scrollbar-background-active: #3d6fa155;
-  scrollbar-background-hover: #3d6fa155;
+  scrollbar-background: transparent;
+  scrollbar-background-active: transparent;
+  scrollbar-background-hover: transparent;
   scrollbar-color: #6fb8e8cc;
   scrollbar-color-active: #9fd8ff;
   scrollbar-color-hover: #6fb8e8;
-  scrollbar-corner-color: #3d6fa122;
+  scrollbar-corner-color: transparent;
 }
 
 .theme-ocean #tool_strip {

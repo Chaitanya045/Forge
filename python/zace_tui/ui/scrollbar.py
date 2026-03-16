@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from math import ceil
-
 from rich.color import Color
 from rich.segment import Segment, Segments
 from rich.style import Style
@@ -24,15 +22,20 @@ class RoundedGlassScrollBarRender(ScrollBarRender):
         if size <= 0:
             return Segments([], new_lines=vertical)
 
+        if window_size > virtual_size:
+            window_size, virtual_size = virtual_size, window_size
+
         width_thickness = thickness if vertical else 1
         blank = cls.BLANK_GLYPH * width_thickness
         base_style = Style(bgcolor=back_color)
 
-        if not window_size or not virtual_size or size == virtual_size:
+        if not window_size or not virtual_size:
+            segments = [Segment(blank, base_style)] * size
+        elif virtual_size <= window_size:
             segments = [Segment(blank, base_style)] * size
         else:
-            bar_ratio = virtual_size / size
-            thumb_size = max(1, ceil(window_size / bar_ratio))
+            thumb_size = max(1, round(size * window_size / virtual_size))
+            thumb_size = min(size, thumb_size)
 
             virtual_scroll_range = max(virtual_size - window_size, 1)
             position_ratio = max(0.0, min(1.0, position / virtual_scroll_range))
@@ -46,34 +49,13 @@ class RoundedGlassScrollBarRender(ScrollBarRender):
 
             prev_bg_style = Style(bgcolor=back_color, meta=move_prev)
             next_bg_style = Style(bgcolor=back_color, meta=move_next)
-            thumb_style = Style(color=bar_color, bgcolor=back_color, meta=grab_meta)
+            thumb_style = Style(bgcolor=bar_color, meta=grab_meta)
 
             segments = [Segment(blank, prev_bg_style)] * size
             segments[thumb_end:] = [Segment(blank, next_bg_style)] * (size - thumb_end)
 
-            thumb_length = thumb_end - thumb_start
             for index in range(thumb_start, thumb_end):
-                if vertical:
-                    if thumb_length == 1:
-                        glyph = "●"
-                    elif index == thumb_start:
-                        glyph = "╷"
-                    elif index == thumb_end - 1:
-                        glyph = "╵"
-                    else:
-                        glyph = "│"
-                    text = glyph * width_thickness
-                else:
-                    if thumb_length == 1:
-                        text = "●"
-                    elif index == thumb_start:
-                        text = "╶"
-                    elif index == thumb_end - 1:
-                        text = "╴"
-                    else:
-                        text = "─"
-
-                segments[index] = Segment(text, thumb_style)
+                segments[index] = Segment(blank, thumb_style)
 
         if vertical:
             return Segments(segments, new_lines=True)
