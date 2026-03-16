@@ -34,6 +34,7 @@ def build_chat_line(
         alignment = "right"
         label_style = "#4EA5FF"
         label = "you"
+        line.justify = "right"
     elif role == "assistant":
         label_style = "#2BEE8C"
         label = "agent"

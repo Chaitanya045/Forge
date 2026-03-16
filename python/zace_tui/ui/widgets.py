@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from textual import events
 from textual.widgets import RichLog
 
@@ -10,9 +12,15 @@ class ChatRichLog(RichLog):
     def _refresh_scrollbars(self) -> None:
         super()._refresh_scrollbars()
         if self._vertical_scrollbar is not None:
-            self._vertical_scrollbar.renderer = RoundedGlassScrollBarRender
+            cast(Any, self._vertical_scrollbar).renderer = RoundedGlassScrollBarRender
         if self._horizontal_scrollbar is not None:
-            self._horizontal_scrollbar.renderer = RoundedGlassScrollBarRender
+            cast(Any, self._horizontal_scrollbar).renderer = RoundedGlassScrollBarRender
+
+    def on_resize(self, event: events.Resize) -> None:
+        super().on_resize(event)
+        reflow = getattr(self.app, "_reflow_chat_after_resize", None)
+        if callable(reflow):
+            reflow()
 
     def _notify_scroll_activity(self) -> None:
         reveal = getattr(self.app, "_reveal_chat_scrollbar", None)

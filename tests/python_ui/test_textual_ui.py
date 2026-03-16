@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from rich.align import Align
@@ -107,7 +107,7 @@ class FakeBridge:
 
 def build_app(fake_bridge: FakeBridge) -> ZaceTextualApp:
     return ZaceTextualApp(
-        bridge_client=fake_bridge,
+        bridge_client=cast(Any, fake_bridge),
         bridge_command=["bun", "run", "src/ui/bridge/entry.ts"],
         bridge_env={},
         payload=BridgeInitPayload(
@@ -129,6 +129,18 @@ def extract_chat_line_text(line: Align) -> str:
     if isinstance(renderable, Text):
         return renderable.plain
     return str(renderable)
+
+
+def extract_chat_line_text_renderable(line: Align) -> Text | None:
+    renderable = line.renderable
+    if isinstance(renderable, Padding):
+        inner = renderable.renderable
+        if isinstance(inner, Text):
+            return inner
+        return None
+    if isinstance(renderable, Text):
+        return renderable
+    return None
 
 
 @pytest.mark.asyncio
@@ -160,11 +172,16 @@ async def test_command_palette_submits_status_command() -> None:
         await pilot.press("enter")
         await pilot.pause()
 
-        assert ("submit", {"kind": "command", "command": "status"}) in fake_bridge.requests
+        assert (
+            "submit",
+            {"kind": "command", "command": "status"},
+        ) in fake_bridge.requests
 
 
 @pytest.mark.asyncio
-async def test_switch_session_palette_action_is_local_and_updates_session_state() -> None:
+async def test_switch_session_palette_action_is_local_and_updates_session_state() -> (
+    None
+):
     fake_bridge = FakeBridge()
     app = build_app(fake_bridge)
 
@@ -178,8 +195,14 @@ async def test_switch_session_palette_action_is_local_and_updates_session_state(
         await pilot.pause()
 
         assert ("list_sessions", {}) in fake_bridge.requests
-        assert ("switch_session", {"sessionId": "other-session"}) in fake_bridge.requests
-        assert ("submit", {"kind": "command", "command": "switch_session"}) not in fake_bridge.requests
+        assert (
+            "switch_session",
+            {"sessionId": "other-session"},
+        ) in fake_bridge.requests
+        assert (
+            "submit",
+            {"kind": "command", "command": "switch_session"},
+        ) not in fake_bridge.requests
         assert app._state.get("sessionId") == "other-session"
         assert app._chat_items[-1]["text"] == "Loaded other session"
 
@@ -209,7 +232,10 @@ async def test_new_session_palette_action_is_local_and_resets_session_state() ->
         await pilot.pause()
 
         assert ("new_session", {}) in fake_bridge.requests
-        assert ("submit", {"kind": "command", "command": "new_session"}) not in fake_bridge.requests
+        assert (
+            "submit",
+            {"kind": "command", "command": "new_session"},
+        ) not in fake_bridge.requests
         assert app._state.get("sessionId") == "chat-20260304-120000-abc123"
         assert app._chat_items == []
         assert app._show_welcome is True
@@ -366,7 +392,10 @@ async def test_theme_palette_action_is_local() -> None:
 
         assert app._active_theme == "ocean"
         assert app.screen.has_class("theme-ocean")
-        assert ("submit", {"kind": "command", "command": "theme_ocean"}) not in fake_bridge.requests
+        assert (
+            "submit",
+            {"kind": "command", "command": "theme_ocean"},
+        ) not in fake_bridge.requests
 
 
 def test_render_helpers_do_not_raise_before_mount() -> None:
@@ -418,11 +447,24 @@ def test_reasoning_chat_line_uses_thinking_label() -> None:
     fake_bridge = FakeBridge()
     app = build_app(fake_bridge)
 
-    reasoning_line = app._build_chat_line("assistant", "planning next step", None, "reasoning")
+    reasoning_line = app._build_chat_line(
+        "assistant", "planning next step", None, "reasoning"
+    )
     plain_text = extract_chat_line_text(reasoning_line)
 
     assert "thinking: planning next step" in plain_text
     assert "agent: planning next step" not in plain_text
+
+
+def test_user_chat_line_right_justifies_text() -> None:
+    fake_bridge = FakeBridge()
+    app = build_app(fake_bridge)
+
+    user_line = app._build_chat_line("user", "hello\\nworld", None)
+    text = extract_chat_line_text_renderable(user_line)
+
+    assert text is not None
+    assert text.justify == "right"
 
 
 @pytest.mark.asyncio
@@ -439,6 +481,63 @@ async def test_welcome_hides_after_submit() -> None:
         chat_log = app.query_one("#chat_log", RichLog)
         assert welcome_screen.display is False
         assert chat_log.display is True
+
+
+@pytest.mark.asyncio
+async def test_chat_log_renders_full_width() -> None:
+    fake_bridge = FakeBridge()
+    app = build_app(fake_bridge)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._append_chat("user", "hello")
+        await pilot.pause()
+
+        chat_log = app.query_one("#chat_log", RichLog)
+        render_width = chat_log.scrollable_content_region.width
+        assert render_width > 0
+        assert chat_log.lines
+        content_lines = [strip for strip in chat_log.lines if strip.text.strip()]
+        assert content_lines
+        assert all(strip.cell_length == render_width for strip in content_lines)
+
+
+@pytest.mark.asyncio
+async def test_preloaded_session_chat_reflows_to_full_width_on_resize() -> None:
+    fake_bridge = FakeBridge()
+    fake_bridge.init_result["messages"] = [
+        {"role": "assistant", "text": "history item", "timestamp": 0},
+    ]
+    fake_bridge.init_result["state"]["turnCount"] = 1
+    app = build_app(fake_bridge)
+
+    async with app.run_test(size=(90, 24)) as pilot:
+        await pilot.pause()
+
+        chat_log = app.query_one("#chat_log", RichLog)
+        initial_width = chat_log.scrollable_content_region.width
+        assert initial_width > 0
+        initial_content_lines = [
+            strip for strip in chat_log.lines if strip.text.strip()
+        ]
+        assert initial_content_lines
+        assert all(
+            strip.cell_length == initial_width for strip in initial_content_lines
+        )
+
+        await pilot.resize_terminal(140, 24)
+        await pilot.pause()
+        await pilot.pause()
+
+        resized_width = chat_log.scrollable_content_region.width
+        assert resized_width > initial_width
+        resized_content_lines = [
+            strip for strip in chat_log.lines if strip.text.strip()
+        ]
+        assert resized_content_lines
+        assert all(
+            strip.cell_length == resized_width for strip in resized_content_lines
+        )
 
 
 @pytest.mark.asyncio

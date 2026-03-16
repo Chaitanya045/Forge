@@ -67,7 +67,7 @@ class ZaceTextualApp(App[None]):
         BridgePromptOption(id="theme_ocean", label="Theme: ocean"),
         BridgePromptOption(id="exit", label="Exit"),
     ]
-    START_META = 'Build GPT-5.2 GitHub Copilot · xhigh'
+    START_META = "Build GPT-5.2 GitHub Copilot · xhigh"
     START_PLACEHOLDER = 'Ask anything... "Fix broken tests"'
     START_SHORTCUTS = "ctrl+t variants   tab agents   ctrl+p commands"
     START_TIP = "Tip  Use /theme or Ctrl+T to switch themes"
@@ -127,7 +127,9 @@ class ZaceTextualApp(App[None]):
             ),
             id="welcome_screen",
         )
-        yield ChatRichLog(id="chat_log", auto_scroll=True, markup=True, highlight=False, wrap=True)
+        yield ChatRichLog(
+            id="chat_log", auto_scroll=True, markup=True, highlight=False, wrap=True
+        )
         yield Static(id="tool_strip")
         yield Input(placeholder="Type your message and press Enter", id="composer")
         yield Footer()
@@ -146,20 +148,28 @@ class ZaceTextualApp(App[None]):
                     "uiConfig": self._payload.ui_config,
                 }
             )
-            init_result_raw = await self._bridge.request("init", init_params.model_dump(exclude_none=True))
+            init_result_raw = await self._bridge.request(
+                "init", init_params.model_dump(exclude_none=True)
+            )
         except BridgeError as error:
             self._append_chat("system", f"Bridge init failed: {error}")
-            self.exit(1)
+            self.exit()
             return
         except ValidationError as error:
-            self._append_chat("system", f"Bridge init request validation failed: {format_validation_error(error)}")
-            self.exit(1)
+            self._append_chat(
+                "system",
+                f"Bridge init request validation failed: {format_validation_error(error)}",
+            )
+            self.exit()
             return
 
         try:
             init_result = parse_init_result(init_result_raw)
         except ValidationError as error:
-            self._append_chat("system", f"Bridge init payload validation failed: {format_validation_error(error)}")
+            self._append_chat(
+                "system",
+                f"Bridge init payload validation failed: {format_validation_error(error)}",
+            )
             self._render_layout_state()
             self._render_state()
             return
@@ -176,6 +186,7 @@ class ZaceTextualApp(App[None]):
 
         self._render_layout_state()
         self._render_state()
+        self._schedule_chat_reflow()
 
     async def on_unmount(self) -> None:
         if self._activity_timer is not None:
@@ -193,7 +204,10 @@ class ZaceTextualApp(App[None]):
         try:
             event = parse_bridge_event(message.event)
         except ValidationError as error:
-            self._append_chat("system", f"Ignored malformed bridge event: {format_validation_error(error)}")
+            self._append_chat(
+                "system",
+                f"Ignored malformed bridge event: {format_validation_error(error)}",
+            )
             return
 
         if isinstance(event, StateUpdateEvent):
@@ -228,11 +242,17 @@ class ZaceTextualApp(App[None]):
             return
 
         if isinstance(event, ApprovalPromptEvent):
-            self.run_worker(self._show_approval_prompt(event), group="bridge_modal", exclusive=True)
+            self.run_worker(
+                self._show_approval_prompt(event), group="bridge_modal", exclusive=True
+            )
             return
 
         if isinstance(event, PermissionPromptEvent):
-            self.run_worker(self._show_permission_prompt(event), group="bridge_modal", exclusive=True)
+            self.run_worker(
+                self._show_permission_prompt(event),
+                group="bridge_modal",
+                exclusive=True,
+            )
             return
 
         if isinstance(event, ErrorEvent):
@@ -283,7 +303,9 @@ class ZaceTextualApp(App[None]):
         await self._handle_palette_action(choice)
 
     async def action_cycle_theme(self) -> None:
-        next_index = (self.THEME_ORDER.index(self._active_theme) + 1) % len(self.THEME_ORDER)
+        next_index = (self.THEME_ORDER.index(self._active_theme) + 1) % len(
+            self.THEME_ORDER
+        )
         next_theme = self.THEME_ORDER[next_index]
         self._apply_theme(next_theme)
         self.notify(f"Theme: {next_theme}", severity="information")
@@ -308,7 +330,10 @@ class ZaceTextualApp(App[None]):
             try:
                 result = parse_interrupt_result(result_raw)
             except ValidationError as error:
-                self._append_chat("system", f"Interrupt response validation failed: {format_validation_error(error)}")
+                self._append_chat(
+                    "system",
+                    f"Interrupt response validation failed: {format_validation_error(error)}",
+                )
                 return
 
             if result.status == "requested":
@@ -322,7 +347,10 @@ class ZaceTextualApp(App[None]):
 
             if result.status == "already_requested":
                 self._interrupt_armed = True
-                self.notify("Interrupt already requested. Press Ctrl+C again to force exit.", severity="warning")
+                self.notify(
+                    "Interrupt already requested. Press Ctrl+C again to force exit.",
+                    severity="warning",
+                )
                 return
 
         await self.action_exit_app()
@@ -344,7 +372,10 @@ class ZaceTextualApp(App[None]):
         try:
             result = parse_submit_result(result_raw)
         except ValidationError as error:
-            self._append_chat("system", f"Submit response validation failed: {format_validation_error(error)}")
+            self._append_chat(
+                "system",
+                f"Submit response validation failed: {format_validation_error(error)}",
+            )
             return
 
         if bool(result.shouldExit):
@@ -352,7 +383,9 @@ class ZaceTextualApp(App[None]):
 
     async def _show_approval_prompt(self, event: ApprovalPromptEvent) -> None:
         async with self._modal_lock:
-            message = f"{event.prompt}\n\nCommand:\n{event.command}\n\nReason: {event.reason}"
+            message = (
+                f"{event.prompt}\n\nCommand:\n{event.command}\n\nReason: {event.reason}"
+            )
             modal = ChoiceModal(
                 title="Approval Required",
                 message=message,
@@ -439,7 +472,9 @@ class ZaceTextualApp(App[None]):
 
     async def _switch_session_flow(self) -> None:
         if bool(self._state.get("isBusy", False)):
-            self.notify("Cannot switch session while run is active.", severity="warning")
+            self.notify(
+                "Cannot switch session while run is active.", severity="warning"
+            )
             return
 
         try:
@@ -458,13 +493,17 @@ class ZaceTextualApp(App[None]):
             return
 
         if len(list_result.sessions) == 0:
-            self.notify("No sessions available in this directory.", severity="information")
+            self.notify(
+                "No sessions available in this directory.", severity="information"
+            )
             return
 
         options = [
             BridgePromptOption(
                 id=session.sessionId,
-                label=self._format_session_palette_label(session.title, session.lastInteractedAgo),
+                label=self._format_session_palette_label(
+                    session.title, session.lastInteractedAgo
+                ),
             )
             for session in list_result.sessions
         ]
@@ -508,7 +547,9 @@ class ZaceTextualApp(App[None]):
 
     async def _new_session_flow(self) -> None:
         if bool(self._state.get("isBusy", False)):
-            self.notify("Cannot switch session while run is active.", severity="warning")
+            self.notify(
+                "Cannot switch session while run is active.", severity="warning"
+            )
             return
 
         try:
@@ -535,7 +576,9 @@ class ZaceTextualApp(App[None]):
             composer.value = ""
         self.notify("Started new session", severity="information")
 
-    def _format_session_palette_label(self, title: str, last_interacted_ago: str) -> str:
+    def _format_session_palette_label(
+        self, title: str, last_interacted_ago: str
+    ) -> str:
         normalized_title = " ".join(title.split())
         max_title_width = 32
         if len(normalized_title) > max_title_width:
@@ -568,15 +611,19 @@ class ZaceTextualApp(App[None]):
             self._chat_items.append(
                 {
                     "final_state": message.finalState,
+                    "kind": None,
                     "role": message.role,
                     "text": message.text,
                 }
             )
 
-        self._show_welcome = not (has_messages or int(self._state.get("turnCount", 0)) > 0)
+        self._show_welcome = not (
+            has_messages or int(self._state.get("turnCount", 0)) > 0
+        )
         self._render_layout_state()
         self._render_chat()
         self._render_state()
+        self._schedule_chat_reflow()
 
     def _resolve_initial_theme(self, ui_config: dict[str, Any]) -> str:
         raw_theme = ui_config.get("theme")
@@ -689,6 +736,7 @@ class ZaceTextualApp(App[None]):
             return
 
         log.clear()
+        render_width = log.scrollable_content_region.width
 
         total_items = len(self._chat_items)
         for index, item in enumerate(self._chat_items):
@@ -696,9 +744,26 @@ class ZaceTextualApp(App[None]):
             text = item.get("text", "") or ""
             final_state = item.get("final_state")
             kind = item.get("kind")
-            log.write(self._build_chat_line(role, text, final_state, kind), expand=True)
+            line = self._build_chat_line(role, text, final_state, kind)
+            if render_width > 0:
+                log.write(line, width=render_width, expand=True)
+            else:
+                log.write(line, expand=True)
             if index < total_items - 1:
-                log.write("", expand=True)
+                if render_width > 0:
+                    log.write("", width=render_width, expand=True)
+                else:
+                    log.write("", expand=True)
+
+    def _schedule_chat_reflow(self) -> None:
+        if self._show_welcome:
+            return
+        self.call_after_refresh(self._render_chat)
+
+    def _reflow_chat_after_resize(self) -> None:
+        if self._show_welcome:
+            return
+        self._render_chat()
 
     def _reveal_chat_scrollbar(self) -> None:
         try:
@@ -724,7 +789,10 @@ class ZaceTextualApp(App[None]):
         except NoMatches:
             self._chat_scrollbar_hide_timer = None
             return
-        if chat_log.is_horizontal_scrollbar_grabbed or chat_log.is_vertical_scrollbar_grabbed:
+        if (
+            chat_log.is_horizontal_scrollbar_grabbed
+            or chat_log.is_vertical_scrollbar_grabbed
+        ):
             self._chat_scrollbar_hide_timer = self.set_timer(
                 self.CHAT_SCROLLBAR_HIDE_DELAY_SECONDS,
                 self._hide_chat_scrollbar,
