@@ -13,6 +13,20 @@ def _thumb_length(segments, bar_color: Color) -> int:
     )
 
 
+def _thumb_signature(segments, bar_color: Color) -> str:
+    cells: list[str] = []
+    for segment in segments.segments:
+        style = segment.style
+        if style is None:
+            cells.append(".")
+            continue
+        if style.bgcolor == bar_color or style.color == bar_color:
+            cells.append(segment.text)
+            continue
+        cells.append(".")
+    return "".join(cells)
+
+
 def test_render_bar_thumb_sizes() -> None:
     bar_color = Color.parse("#FF00FF")
     back_color = Color.parse("#000000")
@@ -44,3 +58,25 @@ def test_render_bar_thumb_sizes() -> None:
         back_color=back_color,
     )
     assert _thumb_length(no_overflow, bar_color) == 0
+
+
+def test_render_bar_has_smooth_fractional_progression() -> None:
+    bar_color = Color.parse("#66D9EF")
+    back_color = Color.parse("#000000")
+
+    signatures = {
+        _thumb_signature(
+            RoundedGlassScrollBarRender.render_bar(
+                size=12,
+                virtual_size=240,
+                window_size=24,
+                position=position,
+                bar_color=bar_color,
+                back_color=back_color,
+            ),
+            bar_color,
+        )
+        for position in range(0, 41)
+    }
+
+    assert len(signatures) >= 10
