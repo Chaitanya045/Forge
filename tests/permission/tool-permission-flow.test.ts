@@ -107,6 +107,7 @@ function makeBaseInput(sessionId: string) {
     inspectionLoopRecoverySignatures: new Set<string>(),
     lastCompletionGateFailure: null,
     lastExecutionWorkingDirectory: process.cwd(),
+    lastSuccessfulPlannerDecision: undefined,
     lastSuccessfulValidationStep: undefined,
     lastToolLoopSignature: "",
     lastToolLoopSignatureCount: 0,

@@ -4,6 +4,7 @@ import type { AgentConfig } from "../../types/config";
 import type { ToolExecutionContext, ToolResult } from "../../types/tool";
 
 import { probeFiles as probeLspFiles } from "../../lsp";
+import { buildRuntimeEvalCommand } from "../../utils/runtime-eval";
 import {
   buildLspBootstrapRequirementMessage,
   type LspBootstrapState,
@@ -53,24 +54,16 @@ const TEMPLATE_SERVER_IDS = {
   typescript: "typescript",
 } as const;
 
-function toAbsoluteConfigPath(configPath: string, workingDirectory: string): string {
-  return isAbsolute(configPath) ? resolve(configPath) : resolve(workingDirectory, configPath);
+function buildPackageExecutorCommand(packageName: string, args: string[]): string[] {
+  if (typeof process.versions.bun === "string") {
+    return [process.execPath, "x", packageName, ...args];
+  }
+
+  return ["npx", "--yes", packageName, ...args];
 }
 
-function buildBunEvalCommand(source: string): string {
-  const sourceBase64 = Buffer.from(source, "utf8").toString("base64");
-  // Load via temp file to avoid very long data: URLs (NameTooLong) and avoid
-  // eval parsing issues with ESM `import` in the decoded source.
-  const loader = [
-    "import { rmSync, writeFileSync } from \"node:fs\";",
-    "import { join } from \"node:path\";",
-    "import { pathToFileURL } from \"node:url\";",
-    "const source = Buffer.from(process.argv[1], \"base64\").toString(\"utf8\");",
-    "const tmpPath = join(process.cwd(), \".zace-autoprovision-\" + String(Date.now()) + \".mjs\");",
-    "writeFileSync(tmpPath, source, \"utf8\");",
-    "try { await import(pathToFileURL(tmpPath).href); } finally { rmSync(tmpPath, { force: true }); }",
-  ].join("\n");
-  return `bun -e '${loader}' '${sourceBase64}'`;
+function toAbsoluteConfigPath(configPath: string, workingDirectory: string): string {
+  return isAbsolute(configPath) ? resolve(configPath) : resolve(workingDirectory, configPath);
 }
 
 function buildAutoprovisionCommand(configPath: string, template: unknown): string {
@@ -109,7 +102,7 @@ if (hasExistingServers) {
  }
   `.trim();
 
-  return buildBunEvalCommand(source);
+  return buildRuntimeEvalCommand(source);
 }
 
 function pendingFilesSupportProvisioning(pendingFiles: string[]): boolean {
@@ -139,7 +132,7 @@ function buildTemplateForPendingFiles(pendingFiles: string[]): {
 
   if (Array.from(extensions).some((ext) => EXTENSIONS_TS_JS.has(ext))) {
     servers.push({
-      command: ["bunx", "typescript-language-server", "--stdio"],
+      command: buildPackageExecutorCommand("typescript-language-server", ["--stdio"]),
       extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
       id: TEMPLATE_SERVER_IDS.typescript,
       rootMarkers: ["tsconfig.json", "package.json"],
@@ -149,7 +142,7 @@ function buildTemplateForPendingFiles(pendingFiles: string[]): {
 
   if (extensions.has(".py")) {
     servers.push({
-      command: ["bunx", "pyright-langserver", "--stdio"],
+      command: buildPackageExecutorCommand("pyright-langserver", ["--stdio"]),
       extensions: [".py"],
       id: TEMPLATE_SERVER_IDS.python,
       rootMarkers: ["pyproject.toml", "requirements.txt", "setup.py"],

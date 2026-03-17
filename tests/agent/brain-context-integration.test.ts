@@ -194,6 +194,7 @@ describe("brain context integration", () => {
       expect(
         seenMessages[0]?.some((message) => message.content.includes("PERSISTENT BRAIN CONTEXT (PLANNER)"))
       ).toBeTrue();
+      expect(seenMessages[1]?.length).toBe(3);
       expect(
         seenMessages[1]?.some((message) => message.content.includes("PERSISTENT BRAIN CONTEXT (PLANNER)"))
       ).toBeFalse();

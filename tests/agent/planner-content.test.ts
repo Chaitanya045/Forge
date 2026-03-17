@@ -4,7 +4,7 @@ import type { LlmClient } from "../../src/llm/client";
 import type { AgentContext } from "../../src/types/agent";
 
 import { parsePlannerContent, plan } from "../../src/agent/planner";
-import { parsePlannerJsonOnly } from "../../src/agent/planner/parser";
+import { createPlannerStreamInspector, parsePlannerJsonOnly } from "../../src/agent/planner/parser";
 
 describe("planner response parsing", () => {
   test("parses strict JSON continue response", () => {
@@ -32,13 +32,14 @@ describe("planner response parsing", () => {
       })
     );
 
-    expect(parsed.action).toBe("continue");
-    if (parsed.action !== "continue") {
+    expect(parsed.success).toBe(true);
+    if (!parsed.success || parsed.parsed.action !== "continue") {
       throw new Error("Expected continue action");
     }
-    expect(parsed.toolCall?.name).toBe("execute_command");
-    expect(parsed.planState?.goal).toBe("Implement BST");
-    expect(parsed.planState?.steps[0]?.id).toBe("step-1");
+    expect(parsed.mode).toBe("strict_json");
+    expect(parsed.parsed.toolCall?.name).toBe("execute_command");
+    expect(parsed.parsed.planState?.goal).toBe("Implement BST");
+    expect(parsed.parsed.planState?.steps[0]?.id).toBe("step-1");
   });
 
   test("rejects execute_command continue payload when command is missing", () => {
@@ -66,12 +67,12 @@ describe("planner response parsing", () => {
       })
     );
 
-    expect(parsed.action).toBe("complete");
-    if (parsed.action !== "complete") {
+    expect(parsed.success).toBe(true);
+    if (!parsed.success || parsed.parsed.action !== "complete") {
       throw new Error("Expected complete action");
     }
-    expect(parsed.completionGatesDeclaredNone).toBe(true);
-    expect(parsed.userMessage).toBe("Done. The requested change is complete.");
+    expect(parsed.parsed.completionGatesDeclaredNone).toBe(true);
+    expect(parsed.parsed.userMessage).toBe("Done. The requested change is complete.");
   });
 
   test("parses legacy ask_user marker from mixed content", () => {
@@ -79,12 +80,13 @@ describe("planner response parsing", () => {
       "CONTINUE: analyzing context\nASK_USER: What filename do you want?"
     );
 
-    expect(parsed.action).toBe("ask_user");
-    if (parsed.action !== "ask_user") {
+    expect(parsed.success).toBe(true);
+    if (!parsed.success || parsed.parsed.action !== "ask_user") {
       throw new Error("Expected ask_user action");
     }
-    expect(parsed.reasoning).toContain("filename");
-    expect(parsed.userMessage).toContain("filename");
+    expect(parsed.mode).toBe("legacy");
+    expect(parsed.parsed.reasoning).toContain("filename");
+    expect(parsed.parsed.userMessage).toContain("filename");
   });
 
   test("parses strict JSON ask_user with dedicated userMessage", () => {
@@ -96,23 +98,27 @@ describe("planner response parsing", () => {
       })
     );
 
-    expect(parsed.action).toBe("ask_user");
-    if (parsed.action !== "ask_user") {
+    expect(parsed.success).toBe(true);
+    if (!parsed.success || parsed.parsed.action !== "ask_user") {
       throw new Error("Expected ask_user action");
     }
-    expect(parsed.userMessage).toBe("Which file path should I modify?");
+    expect(parsed.parsed.userMessage).toBe("Which file path should I modify?");
   });
 
-  test("falls back to ask_user when no valid action is provided", () => {
+  test("returns parse failure when no valid action is provided", () => {
     const parsed = parsePlannerContent("Hello there with no structured response");
-    expect(parsed.action).toBe("ask_user");
+    expect(parsed.success).toBe(false);
+    if (parsed.success) {
+      throw new Error("Expected parse failure");
+    }
+    expect(parsed.reason).toBe("expected_json_object");
   });
 
   test("does not throw on malformed brace-heavy planner content", () => {
     const parsed = parsePlannerContent(
       "CONTINUE: trying command\n{ not valid json { still not valid } }\nextra text"
     );
-    expect(parsed.action).toBe("ask_user");
+    expect(parsed.success).toBe(false);
   });
 
   test("retries once when planner output is malformed and then returns valid JSON", async () => {
@@ -172,5 +178,35 @@ describe("planner response parsing", () => {
     expect(chatCalls).toBe(2);
     expect(result.action).toBe("continue");
     expect(result.planState?.currentStepId).toBe("step-1");
+  });
+
+  test("planner stream inspector stops after complete strict JSON object", () => {
+    const inspector = createPlannerStreamInspector();
+
+    const chunks = [
+      '{"action":"ask_user",',
+      '"reasoning":"Need target",',
+      '"userMessage":"Which file?"}',
+      '\nignored',
+    ];
+    let content = "";
+    const stopSignals: boolean[] = [];
+
+    for (const chunk of chunks) {
+      content += chunk;
+      stopSignals.push(Boolean(inspector({ content, delta: chunk })?.stop));
+    }
+
+    expect(stopSignals).toEqual([false, false, true, true]);
+  });
+
+  test("planner stream inspector stops early on invalid non-json first line", () => {
+    const inspector = createPlannerStreamInspector();
+    const result = inspector({
+      content: "Planning: I will inspect files\n",
+      delta: "Planning: I will inspect files\n",
+    });
+
+    expect(result?.stop).toBe(true);
   });
 });

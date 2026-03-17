@@ -118,4 +118,82 @@ describe("planner structured output", () => {
     expect(result.parseMode).toBe("failed");
     expect(result.schemaUnsupportedReason).toContain("response_format");
   });
+
+  test("caps repair calls at two recovery attempts", async () => {
+    let callCount = 0;
+    const llmClient = {
+      chat: async () => {
+        callCount += 1;
+        return {
+          content: "Planning: malformed output",
+        };
+      },
+    } as unknown as LlmClient;
+
+    const result = await plan(
+      llmClient,
+      createContext(),
+      {
+        getMessages: () => [],
+      },
+      {
+        plannerOutputMode: "prompt_only",
+        plannerParseMaxRepairs: 8,
+        plannerParseRetryOnFailure: true,
+      }
+    );
+
+    expect(callCount).toBe(3);
+    expect(result.action).toBe("blocked");
+    expect(result.parseAttempts).toBe(3);
+  });
+
+  test("passes last successful plan into repair calls without replaying full memory", async () => {
+    const messageBatches: Array<Array<{ content: string; role: string }>> = [];
+    const llmClient = {
+      chat: async (request: { messages: Array<{ content: string; role: string }> }) => {
+        messageBatches.push(request.messages);
+        if (messageBatches.length === 1) {
+          return {
+            content: "Planning: malformed output",
+          };
+        }
+
+        return {
+          content: JSON.stringify({
+            action: "ask_user",
+            reasoning: "Need a target file.",
+            userMessage: "Which file should I change?",
+          }),
+        };
+      },
+    } as unknown as LlmClient;
+
+    const result = await plan(
+      llmClient,
+      createContext(),
+      {
+        getMessages: () => [
+          {
+            content: "older conversation context",
+            role: "assistant",
+          },
+        ],
+      },
+      {
+        lastSuccessfulPlan: {
+          action: "continue",
+          reasoning: "Inspect repository first.",
+          userMessage: undefined,
+        },
+        plannerOutputMode: "prompt_only",
+      }
+    );
+
+    expect(result.action).toBe("ask_user");
+    expect(messageBatches).toHaveLength(2);
+    expect(messageBatches[1]?.length).toBe(3);
+    expect(messageBatches[1]?.[2]?.content).toContain("Last valid planner decision");
+    expect(messageBatches[1]?.[2]?.content).toContain("Inspect repository first.");
+  });
 });

@@ -1,5 +1,7 @@
 import type { ScriptMetadata } from "../types/agent";
 
+import { buildRuntimeEvalCommand } from "../utils/runtime-eval";
+
 export const SCRIPT_DIRECTORY_PATH = ".zace/runtime/scripts";
 export const SCRIPT_REGISTRY_PATH = `${SCRIPT_DIRECTORY_PATH}/registry.tsv`;
 
@@ -106,13 +108,6 @@ function sanitizeTsvField(value: string): string {
   return value.replaceAll("\n", " ").replaceAll("\r", " ").replaceAll("\t", " ").trim();
 }
 
-function buildBunEvalCommand(source: string): string {
-  const sourceBase64 = Buffer.from(source, "utf8").toString("base64");
-  const loader =
-    "const source = Buffer.from(process.argv[1], \"base64\").toString(\"utf8\");const moduleBase64 = Buffer.from(source).toString(\"base64\");await import(\"data:text/javascript;base64,\" + moduleBase64);";
-  return `bun -e '${loader}' '${sourceBase64}'`;
-}
-
 export function serializeScriptCatalog(catalog: Map<string, ScriptMetadata>): string {
   const rows = Array.from(catalog.values())
     .sort((left, right) => left.id.localeCompare(right.id))
@@ -140,7 +135,7 @@ const content = Buffer.from(${JSON.stringify(contentBase64)}, "base64").toString
 writeFileSync(${JSON.stringify(SCRIPT_REGISTRY_PATH)}, content, "utf8");
 `.trim();
 
-  return buildBunEvalCommand(source);
+  return buildRuntimeEvalCommand(source);
 }
 
 export function buildDiscoverScriptsCommand(): string {
@@ -188,5 +183,5 @@ for (const entry of readdirSync(scriptDirectoryPath)) {
 }
 `.trim();
 
-  return buildBunEvalCommand(source);
+  return buildRuntimeEvalCommand(source);
 }

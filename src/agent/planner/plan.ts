@@ -12,14 +12,23 @@ import { logStep } from "../../utils/logger";
 import { PLANNER_RESPONSE_JSON_SCHEMA } from "../planner-schema";
 import { persistInvalidPlannerOutputArtifact, type InvalidPlannerAttempt } from "./invalid-artifacts";
 import {
+  createPlannerStreamInspector,
   parsePlannerContent,
-  parsePlannerJsonOnly,
   parsePlannerLegacy,
   type ParsedPlanResult,
 } from "./parser";
 import { buildPlannerJsonRepairPrompt, buildPlannerJsonRetryPrompt } from "./repair";
 
 export type PlannerParseMode = "failed" | "legacy" | "repair_json" | "schema_transport";
+
+type PlannerDecisionSnapshot = {
+  action: "ask_user" | "blocked" | "complete" | "continue";
+  planState?: PlannerPlanState;
+  reasoning: string;
+  userMessage?: string;
+};
+
+type PlannerAttemptStage = "prompt_initial" | "repair" | "schema_transport" | "schema_transport_normalized";
 
 export interface PlanResult {
   action: "ask_user" | "blocked" | "complete" | "continue";
@@ -46,6 +55,7 @@ type PlanOptions = {
   abortSignal?: AbortSignalLike;
   completionCriteria?: string[];
   completionRequireLsp?: boolean;
+  lastSuccessfulPlan?: PlannerDecisionSnapshot;
   onStreamEnd?: () => void;
   onStreamStart?: () => void;
   onStreamToken?: (token: string) => void;
@@ -56,6 +66,17 @@ type PlanOptions = {
   plannerSchemaStrict?: boolean;
   stream?: boolean;
 };
+
+type ParsedPlannerAttempt =
+  | {
+      parseMode: PlannerParseMode;
+      parsed: ParsedPlanResult;
+      success: true;
+    }
+  | {
+      reason: string;
+      success: false;
+    };
 
 function getSchemaUnsupportedReason(error: unknown): string | undefined {
   if (!(error instanceof LlmError)) {
@@ -73,13 +94,75 @@ function getSchemaUnsupportedReason(error: unknown): string | undefined {
   );
 }
 
+function toPlannerLlmError(
+  error: unknown,
+  input: {
+    attempt: number;
+    planIndex: number;
+    stage: PlannerAttemptStage;
+  }
+): LlmError {
+  if (error instanceof LlmError) {
+    return new LlmError(error.message, error.cause ?? error, {
+      errorClass: error.errorClass,
+      plannerAttempt: input.attempt,
+      plannerAttemptStage: input.stage,
+      plannerPlanIndex: input.planIndex,
+      plannerRawOutput: error.plannerRawOutput,
+      providerCode: error.providerCode,
+      providerMessage: error.providerMessage,
+      responseBody: error.responseBody,
+      responseFormatUnsupported: error.responseFormatUnsupported,
+      statusCode: error.statusCode,
+    });
+  }
+
+  return new LlmError(
+    `Failed to call LLM: ${error instanceof Error ? error.message : "Unknown error"}`,
+    error,
+    {
+      plannerAttempt: input.attempt,
+      plannerAttemptStage: input.stage,
+      plannerPlanIndex: input.planIndex,
+    }
+  );
+}
+
+function buildStrictFailureMessage(input: {
+  invalidOutputArtifactPath?: string;
+  lastInvalidReason: string;
+  planIndex: number;
+}): string {
+  return (
+    `Planner structured output for plan step ${String(input.planIndex)} was invalid. ` +
+    `Last parse reason: ${input.lastInvalidReason || "unknown_parse_error"}.` +
+    `${input.invalidOutputArtifactPath ? ` Invalid output artifact: ${input.invalidOutputArtifactPath}.` : ""}`
+  );
+}
+
+function buildParseExhaustedMessage(input: {
+  invalidOutputArtifactPath?: string;
+  lastInvalidReason: string;
+  parseAttempts: number;
+  planIndex: number;
+}): string {
+  return (
+    `Planner output parsing failed for plan step ${String(input.planIndex)} ` +
+    `after ${String(input.parseAttempts)} model calls. ` +
+    `Expected strict JSON matching planner schema. ` +
+    `Last parse reason: ${input.lastInvalidReason || "unknown_parse_error"}.` +
+    `${input.invalidOutputArtifactPath ? ` Invalid output artifact: ${input.invalidOutputArtifactPath}.` : ""}`
+  );
+}
+
 export async function plan(
   client: LlmClient,
   context: AgentContext,
   memory: { getMessages: () => LlmMessage[] },
   options?: PlanOptions
 ): Promise<PlanResult> {
-  logStep(context.currentStep + 1, "Planning next action");
+  const planIndex = context.currentStep + 1;
+  logStep(planIndex, "Planning next action");
 
   const brainContext = await buildBrainContextMessage({
     callKind: "planner",
@@ -89,20 +172,20 @@ export async function plan(
   const prompt = buildPlannerPrompt(context, options?.completionCriteria, {
     completionRequireLsp: options?.completionRequireLsp,
   });
-  const plannerConversationMessages = [
-    ...memory.getMessages(),
-    { content: prompt, role: "user" as const },
-  ];
+  const promptMessage = { content: prompt, role: "user" as const };
+  const plannerConversationMessages = [...memory.getMessages(), promptMessage];
   const baseMessages = injectSystemContextMessage(
     plannerConversationMessages,
     brainContext.message.content
   );
-  const leanPlannerMessages = [...plannerConversationMessages];
+  const repairMessages = [promptMessage];
   const plannerOutputMode = options?.plannerOutputMode ?? "auto";
   const plannerSchemaStrict = options?.plannerSchemaStrict ?? true;
   const maxInvalidArtifactChars = Math.max(200, options?.plannerMaxInvalidArtifactChars ?? 4_000);
-  const maxRepairs = Math.max(0, options?.plannerParseMaxRepairs ?? 2);
+  const configuredRepairAttempts = Math.max(0, options?.plannerParseMaxRepairs ?? 2);
   const retryOnFailure = options?.plannerParseRetryOnFailure ?? true;
+  const maxRecoveryAttempts = Math.min(2, configuredRepairAttempts + (retryOnFailure ? 1 : 0));
+  void retryOnFailure;
   const abortChatOptions = options?.abortSignal
     ? { abortSignal: options.abortSignal as globalThis.AbortSignal }
     : undefined;
@@ -119,10 +202,22 @@ export async function plan(
   let lastInvalidReason = "";
   const invalidAttempts: InvalidPlannerAttempt[] = [];
 
+  const applyLlmResponseMetadata = (response: Awaited<ReturnType<LlmClient["chat"]>>): void => {
+    if (response.normalized?.reasons && response.normalized.reasons.length > 0) {
+      llmRequestNormalized = true;
+      for (const reason of response.normalized.reasons) {
+        llmRequestNormalizationReasons.add(reason);
+      }
+    }
+
+    usage = response.usage ?? usage;
+  };
+
   const recordInvalid = (
     content: string,
     parseReason: string,
     input: {
+      stage: PlannerAttemptStage;
       transportStructured: boolean;
     }
   ): void => {
@@ -132,27 +227,80 @@ export async function plan(
     invalidAttempts.push({
       content,
       parseReason,
+      planIndex,
+      stage: input.stage,
       transportStructured: input.transportStructured,
     });
   };
 
-  const invokePlannerModel = async (
+  const finalizeSuccess = (
+    parsed: ParsedPlanResult,
     input: {
-      forceNormalizeToolRole?: boolean;
-      messages?: LlmMessage[];
-      stream: boolean;
+      parseMode: PlannerParseMode;
       transportStructured: boolean;
     }
-  ): Promise<Awaited<ReturnType<LlmClient["chat"]>>> => {
+  ): PlanResult => ({
+    ...parsed,
+    llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
+    llmRequestNormalized,
+    llmRequestRejected,
+    parseAttempts,
+    parseMode: input.parseMode,
+    plannerFallbackPromptMode,
+    rawInvalidCount,
+    schemaUnsupportedReason,
+    transportStructured: input.transportStructured,
+    usage,
+  });
+
+  const buildStrictFailure = async (transportStructured: boolean): Promise<PlanResult> => {
+    const invalidOutputArtifactPath = await persistInvalidPlannerOutputArtifact({
+      attempts: invalidAttempts,
+      maxChars: maxInvalidArtifactChars,
+      outputMode: plannerOutputMode,
+    });
+
+    return {
+      action: "blocked",
+      invalidOutputArtifactPath,
+      llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
+      llmRequestNormalized,
+      llmRequestRejected,
+      parseAttempts,
+      parseMode: "failed",
+      plannerFallbackPromptMode,
+      rawInvalidCount,
+      reasoning: buildStrictFailureMessage({
+        invalidOutputArtifactPath,
+        lastInvalidReason,
+        planIndex,
+      }),
+      schemaUnsupportedReason,
+      transportStructured,
+      usage,
+      userMessage:
+        "Planner response was malformed in strict schema mode. Please retry with a model that supports strict JSON schema output.",
+    };
+  };
+
+  const invokePlannerModel = async (input: {
+    forceNormalizeToolRole?: boolean;
+    messages: LlmMessage[];
+    stage: PlannerAttemptStage;
+    stream: boolean;
+    transportStructured: boolean;
+  }): Promise<Awaited<ReturnType<LlmClient["chat"]>>> => {
+    const attempt = parseAttempts + 1;
     if (input.stream) {
       options?.onStreamStart?.();
     }
+
     try {
-      parseAttempts += 1;
+      parseAttempts = attempt;
       return await client.chat(
         {
           callKind: "planner",
-          messages: input.messages ?? baseMessages,
+          messages: input.messages,
           ...(input.forceNormalizeToolRole ? { normalizeToolRole: true } : {}),
           ...(input.transportStructured
             ? {
@@ -172,9 +320,18 @@ export async function plan(
                 options?.onStreamToken?.(token);
               },
               stream: true,
+              streamInspector: createPlannerStreamInspector({
+                allowLegacy: true,
+              }),
             }
           : abortChatOptions
       );
+    } catch (error) {
+      throw toPlannerLlmError(error, {
+        attempt,
+        planIndex,
+        stage: input.stage,
+      });
     } finally {
       if (input.stream) {
         options?.onStreamEnd?.();
@@ -182,110 +339,143 @@ export async function plan(
     }
   };
 
+  const parsePlannerAttempt = (
+    content: string,
+    input: {
+      stage: PlannerAttemptStage;
+      successParseMode: Exclude<PlannerParseMode, "failed" | "legacy">;
+      transportStructured: boolean;
+    }
+  ): ParsedPlannerAttempt => {
+    const parsed = parsePlannerContent(content, {
+      allowLegacy: false,
+    });
+    if (parsed.success) {
+      return {
+        parsed: parsed.parsed,
+        parseMode: input.successParseMode,
+        success: true,
+      };
+    }
+
+    recordInvalid(content, parsed.reason, {
+      stage: input.stage,
+      transportStructured: input.transportStructured,
+    });
+    return {
+      reason: parsed.reason,
+      success: false,
+    };
+  };
+
+  const tryPlannerAttempt = async (input: {
+    forceNormalizeToolRole?: boolean;
+    messages: LlmMessage[];
+    stage: PlannerAttemptStage;
+    stream: boolean;
+    successParseMode: Exclude<PlannerParseMode, "failed" | "legacy">;
+    transportStructured: boolean;
+  }): Promise<PlanResult | undefined> => {
+    const response = await invokePlannerModel({
+      forceNormalizeToolRole: input.forceNormalizeToolRole,
+      messages: input.messages,
+      stage: input.stage,
+      stream: input.stream,
+      transportStructured: input.transportStructured,
+    });
+    applyLlmResponseMetadata(response);
+
+    const parsedAttempt = parsePlannerAttempt(response.content.trim(), {
+      stage: input.stage,
+      successParseMode: input.successParseMode,
+      transportStructured: input.transportStructured,
+    });
+    if (!parsedAttempt.success) {
+      return undefined;
+    }
+
+    return finalizeSuccess(parsedAttempt.parsed, {
+      parseMode: parsedAttempt.parseMode,
+      transportStructured: input.transportStructured,
+    });
+  };
+
   if (plannerOutputMode !== "prompt_only") {
     try {
-      const transportResponse = await invokePlannerModel({
+      const transportResult = await tryPlannerAttempt({
+        messages: baseMessages,
+        stage: "schema_transport",
         stream: options?.stream ?? false,
+        successParseMode: "schema_transport",
         transportStructured: true,
       });
-      if (transportResponse.normalized?.reasons && transportResponse.normalized.reasons.length > 0) {
-        llmRequestNormalized = true;
-        for (const reason of transportResponse.normalized.reasons) {
-          llmRequestNormalizationReasons.add(reason);
-        }
-      }
-      usage = transportResponse.usage ?? usage;
-      const transportContent = transportResponse.content.trim();
-      const transportStrict = parsePlannerJsonOnly(transportContent);
-      if (transportStrict.success) {
-        return {
-          ...transportStrict.parsed,
-          llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-          llmRequestNormalized,
-          llmRequestRejected,
-          parseAttempts,
-          parseMode: "schema_transport",
-          rawInvalidCount,
-          transportStructured: true,
-          usage,
-        };
+      if (transportResult) {
+        return transportResult;
       }
 
-      recordInvalid(transportContent, transportStrict.reason, {
-        transportStructured: true,
-      });
       if (plannerOutputMode === "schema_strict") {
-        const invalidOutputArtifactPath = await persistInvalidPlannerOutputArtifact({
-          attempts: invalidAttempts,
-          maxChars: maxInvalidArtifactChars,
-          outputMode: plannerOutputMode,
-        });
-        const strictFailureMessage =
-          `Planner structured output was invalid. Last parse reason: ${lastInvalidReason || "unknown_parse_error"}.` +
-          `${invalidOutputArtifactPath ? ` Invalid output artifact: ${invalidOutputArtifactPath}.` : ""}`;
-        return {
-          action: "blocked",
-          invalidOutputArtifactPath,
-          llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-          llmRequestNormalized,
-          llmRequestRejected,
-          parseAttempts,
-          parseMode: "failed",
-          plannerFallbackPromptMode,
-          rawInvalidCount,
-          reasoning: strictFailureMessage,
-          transportStructured: true,
-          usage,
-          userMessage:
-            "Planner response was malformed in strict schema mode. Please retry with a model that supports strict JSON schema output.",
-        };
+        return await buildStrictFailure(true);
       }
+      plannerFallbackPromptMode = true;
     } catch (error) {
       if (error instanceof LlmError && error.errorClass === "invalid_message_shape") {
         llmRequestRejected = true;
-        const retryResponse = await invokePlannerModel({
-          forceNormalizeToolRole: true,
-          stream: false,
-          transportStructured: true,
-        });
-        if (retryResponse.normalized?.reasons && retryResponse.normalized.reasons.length > 0) {
-          llmRequestNormalized = true;
-          for (const reason of retryResponse.normalized.reasons) {
-            llmRequestNormalizationReasons.add(reason);
+        try {
+          const retryResult = await tryPlannerAttempt({
+            forceNormalizeToolRole: true,
+            messages: baseMessages,
+            stage: "schema_transport_normalized",
+            stream: false,
+            successParseMode: "schema_transport",
+            transportStructured: true,
+          });
+          if (retryResult) {
+            return retryResult;
+          }
+
+          if (plannerOutputMode === "schema_strict") {
+            return await buildStrictFailure(true);
+          }
+          plannerFallbackPromptMode = true;
+        } catch (normalizedError) {
+          const normalizedUnsupportedReason = getSchemaUnsupportedReason(normalizedError);
+          if (!normalizedUnsupportedReason) {
+            throw normalizedError;
+          }
+
+          schemaUnsupportedReason = normalizedUnsupportedReason;
+          plannerFallbackPromptMode = true;
+          if (plannerOutputMode === "schema_strict") {
+            return {
+              action: "blocked",
+              llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
+              llmRequestNormalized,
+              llmRequestRejected,
+              parseAttempts,
+              parseMode: "failed",
+              plannerFallbackPromptMode,
+              rawInvalidCount,
+              reasoning:
+                `Planner structured output mode is required but unsupported by the provider/model. ${normalizedUnsupportedReason}`,
+              schemaUnsupportedReason: normalizedUnsupportedReason,
+              transportStructured: true,
+              usage,
+              userMessage:
+                "Planner schema mode is unsupported by this model/provider. Please switch models or disable strict planner schema mode.",
+            };
           }
         }
-        usage = retryResponse.usage ?? usage;
-        const retryContent = retryResponse.content.trim();
-        const retryStrict = parsePlannerJsonOnly(retryContent);
-        if (retryStrict.success) {
-          return {
-            ...retryStrict.parsed,
-            llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-            llmRequestNormalized,
-            llmRequestRejected,
-            parseAttempts,
-            parseMode: "schema_transport",
-            rawInvalidCount,
-            transportStructured: true,
-            usage,
-          };
+      } else {
+        const unsupportedReason = getSchemaUnsupportedReason(error);
+        if (!unsupportedReason) {
+          throw error;
         }
 
-        recordInvalid(retryContent, retryStrict.reason, {
-          transportStructured: true,
-        });
+        schemaUnsupportedReason = unsupportedReason;
+        plannerFallbackPromptMode = true;
         if (plannerOutputMode === "schema_strict") {
-          const invalidOutputArtifactPath = await persistInvalidPlannerOutputArtifact({
-            attempts: invalidAttempts,
-            maxChars: maxInvalidArtifactChars,
-            outputMode: plannerOutputMode,
-          });
-          const strictFailureMessage =
-            `Planner structured output was invalid. Last parse reason: ${lastInvalidReason || "unknown_parse_error"}.` +
-            `${invalidOutputArtifactPath ? ` Invalid output artifact: ${invalidOutputArtifactPath}.` : ""}`;
           return {
             action: "blocked",
-            invalidOutputArtifactPath,
             llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
             llmRequestNormalized,
             llmRequestRejected,
@@ -293,186 +483,77 @@ export async function plan(
             parseMode: "failed",
             plannerFallbackPromptMode,
             rawInvalidCount,
-            reasoning: strictFailureMessage,
+            reasoning:
+              `Planner structured output mode is required but unsupported by the provider/model. ${unsupportedReason}`,
+            schemaUnsupportedReason: unsupportedReason,
             transportStructured: true,
             usage,
             userMessage:
-              "Planner response was malformed in strict schema mode. Please retry with a model that supports strict JSON schema output.",
+              "Planner schema mode is unsupported by this model/provider. Please switch models or disable strict planner schema mode.",
           };
         }
       }
-
-      const unsupportedReason = getSchemaUnsupportedReason(error);
-      if (!unsupportedReason) {
-        throw error;
-      }
-
-      schemaUnsupportedReason = unsupportedReason;
-      plannerFallbackPromptMode = true;
-      if (plannerOutputMode === "schema_strict") {
-        return {
-          action: "blocked",
-          llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-          llmRequestNormalized,
-          llmRequestRejected,
-          parseAttempts,
-          parseMode: "failed",
-          plannerFallbackPromptMode,
-          rawInvalidCount,
-          reasoning:
-            `Planner structured output mode is required but unsupported by the provider/model. ${unsupportedReason}`,
-          schemaUnsupportedReason: unsupportedReason,
-          transportStructured: true,
-          usage,
-          userMessage:
-            "Planner schema mode is unsupported by this model/provider. Please switch models or disable strict planner schema mode.",
-        };
-      }
     }
   }
 
-  let initialContent = lastInvalidContent;
   if (plannerOutputMode !== "prompt_only") {
     plannerFallbackPromptMode = true;
   }
-  if (!initialContent) {
-    const promptResponse = await invokePlannerModel({
+
+  if (!lastInvalidContent) {
+    const promptResult = await tryPlannerAttempt({
+      messages: baseMessages,
+      stage: "prompt_initial",
       stream: (options?.stream ?? false) && parseAttempts === 0,
+      successParseMode: "repair_json",
       transportStructured: false,
     });
-    if (promptResponse.normalized?.reasons && promptResponse.normalized.reasons.length > 0) {
-      llmRequestNormalized = true;
-      for (const reason of promptResponse.normalized.reasons) {
-        llmRequestNormalizationReasons.add(reason);
-      }
+    if (promptResult) {
+      return promptResult;
     }
-    usage = promptResponse.usage ?? usage;
-    initialContent = promptResponse.content.trim();
-    const initialStrict = parsePlannerJsonOnly(initialContent);
-    if (initialStrict.success) {
-      return {
-        ...initialStrict.parsed,
-        llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-        llmRequestNormalized,
-        llmRequestRejected,
-        parseAttempts,
-        parseMode: "repair_json",
-        plannerFallbackPromptMode,
-        rawInvalidCount,
-        schemaUnsupportedReason,
-        transportStructured: false,
-        usage,
-      };
-    }
-
-    recordInvalid(initialContent, initialStrict.reason, {
-      transportStructured: false,
-    });
   }
 
-  for (let repairAttempt = 0; repairAttempt < maxRepairs; repairAttempt += 1) {
-    const repairResponse = await client.chat(
-      {
-        callKind: "planner",
-        messages: [
-          ...leanPlannerMessages,
-          { content: lastInvalidContent, role: "assistant" as const },
-          { content: buildPlannerJsonRepairPrompt(lastInvalidContent), role: "user" as const },
-        ],
-      },
-      abortChatOptions
-    );
-    if (repairResponse.normalized?.reasons && repairResponse.normalized.reasons.length > 0) {
-      llmRequestNormalized = true;
-      for (const reason of repairResponse.normalized.reasons) {
-        llmRequestNormalizationReasons.add(reason);
-      }
-    }
-    parseAttempts += 1;
-    usage = repairResponse.usage ?? usage;
-
-    const repairedContent = repairResponse.content.trim();
-    const repairedStrict = parsePlannerJsonOnly(repairedContent);
-    if (repairedStrict.success) {
-      return {
-        ...repairedStrict.parsed,
-        llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-        llmRequestNormalized,
-        llmRequestRejected,
-        parseAttempts,
-        parseMode: "repair_json",
-        plannerFallbackPromptMode,
-        rawInvalidCount,
-        schemaUnsupportedReason,
-        transportStructured: false,
-        usage,
-      };
-    }
-
-    recordInvalid(repairedContent, repairedStrict.reason, {
+  for (let recoveryAttempt = 0; recoveryAttempt < maxRecoveryAttempts; recoveryAttempt += 1) {
+    const repairPrompt = recoveryAttempt < configuredRepairAttempts || !retryOnFailure
+      ? buildPlannerJsonRepairPrompt({
+          parseReason: lastInvalidReason,
+          previousResponse: lastInvalidContent,
+          previousSuccessfulPlan: options?.lastSuccessfulPlan,
+        })
+      : buildPlannerJsonRetryPrompt({
+          parseReason: lastInvalidReason,
+          previousResponse: lastInvalidContent,
+          previousSuccessfulPlan: options?.lastSuccessfulPlan,
+        });
+    const repairResult = await tryPlannerAttempt({
+      messages: [
+        ...repairMessages,
+        { content: lastInvalidContent, role: "assistant" as const },
+        {
+          content: repairPrompt,
+          role: "user" as const,
+        },
+      ],
+      stage: "repair",
+      stream: false,
+      successParseMode: "repair_json",
       transportStructured: false,
     });
+    if (repairResult) {
+      return repairResult;
+    }
   }
 
-  if (retryOnFailure) {
-    const retryResponse = await client.chat(
-      {
-        callKind: "planner",
-        messages: [
-          ...leanPlannerMessages,
-          { content: lastInvalidContent, role: "assistant" as const },
-          { content: buildPlannerJsonRetryPrompt(lastInvalidContent), role: "user" as const },
-        ],
-      },
-      abortChatOptions
-    );
-    if (retryResponse.normalized?.reasons && retryResponse.normalized.reasons.length > 0) {
-      llmRequestNormalized = true;
-      for (const reason of retryResponse.normalized.reasons) {
-        llmRequestNormalizationReasons.add(reason);
-      }
-    }
-    parseAttempts += 1;
-    usage = retryResponse.usage ?? usage;
-
-    const retryContent = retryResponse.content.trim();
-    const retryStrict = parsePlannerJsonOnly(retryContent);
-    if (retryStrict.success) {
-      return {
-        ...retryStrict.parsed,
-        llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-        llmRequestNormalized,
-        llmRequestRejected,
-        parseAttempts,
-        parseMode: "repair_json",
-        plannerFallbackPromptMode,
-        rawInvalidCount,
-        schemaUnsupportedReason,
-        transportStructured: false,
-        usage,
-      };
+  for (const invalidAttempt of [...invalidAttempts].reverse()) {
+    const legacy = parsePlannerLegacy(invalidAttempt.content);
+    if (!legacy) {
+      continue;
     }
 
-    recordInvalid(retryContent, retryStrict.reason, {
-      transportStructured: false,
-    });
-  }
-
-  const legacy = parsePlannerLegacy(lastInvalidContent) ?? parsePlannerLegacy(initialContent);
-  if (legacy) {
-    return {
-      ...legacy,
-      llmRequestNormalizationReasons: Array.from(llmRequestNormalizationReasons),
-      llmRequestNormalized,
-      llmRequestRejected,
-      parseAttempts,
+    return finalizeSuccess(legacy, {
       parseMode: "legacy",
-      plannerFallbackPromptMode,
-      rawInvalidCount,
-      schemaUnsupportedReason,
       transportStructured: false,
-      usage,
-    };
+    });
   }
 
   const invalidOutputArtifactPath = await persistInvalidPlannerOutputArtifact({
@@ -480,10 +561,6 @@ export async function plan(
     maxChars: maxInvalidArtifactChars,
     outputMode: plannerOutputMode,
   });
-  const failureMessage =
-    `Planner output parsing failed after ${String(parseAttempts)} attempts. ` +
-    `Expected strict JSON matching planner schema. Last parse reason: ${lastInvalidReason || "unknown_parse_error"}.` +
-    `${invalidOutputArtifactPath ? ` Invalid output artifact: ${invalidOutputArtifactPath}.` : ""}`;
   return {
     action: "blocked",
     invalidOutputArtifactPath,
@@ -494,7 +571,12 @@ export async function plan(
     parseMode: "failed",
     plannerFallbackPromptMode,
     rawInvalidCount,
-    reasoning: failureMessage,
+    reasoning: buildParseExhaustedMessage({
+      invalidOutputArtifactPath,
+      lastInvalidReason,
+      parseAttempts,
+      planIndex,
+    }),
     schemaUnsupportedReason,
     transportStructured: false,
     usage,

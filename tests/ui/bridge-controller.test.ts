@@ -532,7 +532,14 @@ describe("BridgeController command orchestration", () => {
           }
 
           return {
-            content: `{\"titles\":[{\"sessionId\":\"${sessionId}\",\"title\":\"Reasoning test\"}]}`,
+            content: JSON.stringify({
+              titles: [
+                {
+                  sessionId,
+                  title: "Reasoning test",
+                },
+              ],
+            }),
           };
         },
       } as unknown as LlmClient,

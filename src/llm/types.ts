@@ -13,6 +13,15 @@ export interface LlmResponseFormatJsonSchema {
   schema: Record<string, unknown>;
 }
 
+export type LlmStreamInspectionResult = {
+  stop: boolean;
+};
+
+export type LlmStreamInspector = (input: {
+  content: string;
+  delta: string;
+}) => LlmStreamInspectionResult | undefined;
+
 export interface LlmRequest {
   callKind?: LlmCallKind;
   messages: LlmMessage[];

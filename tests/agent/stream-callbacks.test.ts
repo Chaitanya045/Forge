@@ -11,11 +11,27 @@ describe("stream callbacks", () => {
   test("planner invokes stream callbacks in order", async () => {
     const events: string[] = [];
     const client = {
-      chat: async (_request: unknown, options?: { onToken?: (token: string) => void }) => {
-        options?.onToken?.("hel");
-        options?.onToken?.("lo");
+      chat: async (
+        _request: unknown,
+        options?: {
+          onToken?: (token: string) => void;
+          streamInspector?: (input: { content: string; delta: string }) => undefined | { stop: boolean };
+        }
+      ) => {
+        let content = "";
+        const pushToken = (token: string) => {
+          content += token;
+          options?.onToken?.(token);
+          return options?.streamInspector?.({ content, delta: token });
+        };
+
+        pushToken('{"action":"complete",');
+        const inspection = pushToken('"reasoning":"done","gates":"none"}');
+        if (!inspection?.stop) {
+          pushToken('\nignored');
+        }
         return {
-          content: "COMPLETE: done\nGATES: none",
+          content: '{"action":"complete","reasoning":"done","gates":"none"}',
         };
       },
     } as LlmClient;
@@ -41,7 +57,12 @@ describe("stream callbacks", () => {
       }
     );
 
-    expect(events).toEqual(["start", "token:hel", "token:lo", "end"]);
+    expect(events).toEqual([
+      "start",
+      'token:{"action":"complete",',
+      'token:"reasoning":"done","gates":"none"}',
+      "end",
+    ]);
   });
 
   test("executor analysis invokes stream callbacks", async () => {

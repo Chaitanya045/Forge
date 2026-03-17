@@ -119,7 +119,7 @@ describe("runtime LSP auto-provision approval gating", () => {
     const llmClient = {
       chat: async (req: { callKind?: string; messages?: Array<{ role: string; content: string }> }) => {
         if (req.callKind === "safety") {
-          // Treat the bun -e autoprovision command as destructive to force approval gating.
+          // Treat the generated runtime-eval autoprovision command as destructive to force approval gating.
           return {
             content: JSON.stringify({ isDestructive: true, reason: "test: treat autoprovision as destructive" }),
           };

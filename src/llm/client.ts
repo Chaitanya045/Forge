@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../types/config";
-import type { LlmRequest, LlmResponse, LlmUsage } from "./types";
+import type { LlmRequest, LlmResponse, LlmStreamInspector, LlmUsage } from "./types";
 
 import { LlmError } from "../utils/errors";
 import { log } from "../utils/logger";
@@ -9,6 +9,7 @@ type ChatOptions = {
   abortSignal?: globalThis.AbortSignal;
   onToken?: (token: string) => void;
   stream?: boolean;
+  streamInspector?: LlmStreamInspector;
 };
 
 type OpenRouterModel = {
@@ -42,6 +43,7 @@ type StreamChunkReadResult = {
 };
 
 type StreamChunkReader = {
+  cancel(reason?: unknown): Promise<void>;
   read(): Promise<StreamChunkReadResult>;
 };
 
@@ -270,7 +272,8 @@ export class LlmClient {
         const streamResponse = await this.chatStream(
           transportRequest.request,
           options?.onToken,
-          options?.abortSignal
+          options?.abortSignal,
+          options?.streamInspector
         );
         if (transportRequest.reasons.length === 0) {
           return streamResponse;
@@ -352,7 +355,8 @@ export class LlmClient {
   private async chatStream(
     request: LlmRequest,
     onToken?: (token: string) => void,
-    abortSignal?: globalThis.AbortSignal
+    abortSignal?: globalThis.AbortSignal,
+    streamInspector?: LlmStreamInspector
   ): Promise<LlmResponse> {
     const streamAbortController = new globalThis.AbortController();
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -439,6 +443,18 @@ export class LlmClient {
         if (delta) {
           content += delta;
           onToken?.(delta);
+
+          const inspection = streamInspector?.({
+            content,
+            delta,
+          });
+          if (inspection?.stop) {
+            this.stopStreamingEarly(reader, streamAbortController);
+            return {
+              content,
+              usage,
+            };
+          }
         }
       }
     }
@@ -447,6 +463,15 @@ export class LlmClient {
       content,
       usage,
     };
+  }
+
+  private stopStreamingEarly(
+    reader: StreamChunkReader,
+    streamAbortController: globalThis.AbortController
+  ): void {
+    const stopReason = new Error("llm_stream_inspector_stop");
+    streamAbortController.abort(stopReason);
+    void reader.cancel(stopReason).catch(() => undefined);
   }
 
   private composeRequestSignal(

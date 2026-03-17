@@ -9,7 +9,9 @@ const PLANNER_INVALID_ARTIFACTS_DIRECTORY = ".zace/runtime/planner";
 
 export type InvalidPlannerAttempt = {
   content: string;
+  planIndex?: number;
   parseReason: string;
+  stage?: string;
   transportStructured: boolean;
 };
 
@@ -41,7 +43,9 @@ export async function persistInvalidPlannerOutputArtifact(input: {
     attempts: input.attempts.map((attempt, index) => ({
       attempt: index + 1,
       parseReason: attempt.parseReason,
+      planIndex: attempt.planIndex,
       response: truncateForArtifact(attempt.content, input.maxChars),
+      stage: attempt.stage,
       transportStructured: attempt.transportStructured,
     })),
     outputMode: input.outputMode,

@@ -6,7 +6,12 @@ import type { AgentConfig } from "../../src/types/config";
 
 import { runAgentLoop } from "../../src/agent/loop";
 import { createAutoSessionId } from "../../src/cli/chat-session";
-import { getSessionFilePath, readSessionEntries } from "../../src/tools/session";
+import {
+  getSessionFilePath,
+  readSessionEntries,
+  type SessionEntry,
+  type SessionRunEventEntry,
+} from "../../src/tools/session";
 
 function createTestConfig(): AgentConfig {
   return {
@@ -55,6 +60,18 @@ function createTestConfig(): AgentConfig {
   };
 }
 
+function getRunEventSequence(entries: SessionEntry[]): string[] {
+  return entries
+    .filter((entry): entry is SessionRunEventEntry => entry.type === "run_event")
+    .map((entry) => entry.event);
+}
+
+function getRunEventByName(entries: SessionEntry[], name: string): SessionRunEventEntry | undefined {
+  return entries
+    .filter((entry): entry is SessionRunEventEntry => entry.type === "run_event")
+    .find((entry) => entry.event === name);
+}
+
 describe("run events", () => {
   test("run_event entries are persisted in ordered sequence", async () => {
     const sessionId = createAutoSessionId(new Date("2026-02-17T18:00:00.000Z"));
@@ -78,8 +95,7 @@ describe("run events", () => {
       });
 
       const entries = await readSessionEntries(sessionId);
-      const runEvents = entries.filter((entry) => entry.type === "run_event");
-      const sequence = runEvents.map((event) => event.event);
+      const sequence = getRunEventSequence(entries);
 
       expect(sequence).toContain("run_started");
       expect(sequence).toContain("plan_started");
@@ -95,6 +111,62 @@ describe("run events", () => {
       expect(runStartedIndex).toBeLessThan(planStartedIndex);
       expect(planStartedIndex).toBeLessThan(planParsedIndex);
       expect(planParsedIndex).toBeLessThan(finalStateIndex);
+    } finally {
+      await unlink(sessionPath).catch(() => undefined);
+    }
+  });
+
+  test("planner recovery telemetry reflects bounded retry behavior", async () => {
+    const sessionId = createAutoSessionId(new Date("2026-02-18T18:00:00.000Z"));
+    const sessionPath = getSessionFilePath(sessionId);
+    const config = createTestConfig();
+    let callCount = 0;
+
+    const llmClient = {
+      chat: async () => {
+        callCount += 1;
+        if (callCount <= 3) {
+          return {
+            content: "Planning: malformed output",
+          };
+        }
+
+        return {
+          content: JSON.stringify({
+            action: "ask_user",
+            reasoning: "Need a file path.",
+            userMessage: "Which file should I modify?",
+          }),
+        };
+      },
+      getModelContextWindowTokens: async () => undefined,
+    } as unknown as LlmClient;
+
+    try {
+      await runAgentLoop(llmClient, config, "hello", {
+        sessionId,
+      });
+
+      const entries = await readSessionEntries(sessionId);
+      const sequence = getRunEventSequence(entries);
+
+      expect(callCount).toBe(3);
+      expect(sequence).toContain("planner_parse_failed");
+      expect(sequence).toContain("planner_parse_repair_attempted");
+      expect(sequence).toContain("planner_parse_exhausted");
+      expect(sequence).toContain("planner_blocked_parse_exhausted");
+      expect(sequence).not.toContain("planner_parse_recovered");
+
+      const repairAttemptedEvent = getRunEventByName(entries, "planner_parse_repair_attempted");
+      expect(repairAttemptedEvent?.payload.parseAttempts).toBe(3);
+      expect(repairAttemptedEvent?.payload.parseMode).toBe("failed");
+
+      const parseFailedEvent = getRunEventByName(entries, "planner_parse_failed");
+      expect(parseFailedEvent?.payload.rawInvalidCount).toBe(3);
+
+      const parseExhaustedEvent = getRunEventByName(entries, "planner_parse_exhausted");
+      expect(parseExhaustedEvent?.payload.parseAttempts).toBe(3);
+      expect(parseExhaustedEvent?.payload.rawInvalidCount).toBe(3);
     } finally {
       await unlink(sessionPath).catch(() => undefined);
     }

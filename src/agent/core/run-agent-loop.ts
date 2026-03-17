@@ -152,6 +152,7 @@ export async function runAgentLoop(
     inspectionLoopRecoverySignatures: new Set<string>(),
     lastCompletionGateFailure: null,
     lastExecutionWorkingDirectory: process.cwd(),
+    lastSuccessfulPlannerDecision: undefined,
     lastSuccessfulValidationStep: undefined,
     lastToolLoopSignature: "",
     lastToolLoopSignatureCount: 0,
@@ -491,6 +492,7 @@ export async function runAgentLoop(
         abortSignal,
         completionCriteria: getCompletionCriteria(),
         completionRequireLsp: config.completionRequireLsp,
+        lastSuccessfulPlan: loopState.lastSuccessfulPlannerDecision,
         ...createLlmStreamCallbacks({
           callKind: "planner",
           emit: options?.onProcessorEvent,
@@ -515,6 +517,12 @@ export async function runAgentLoop(
         plannerSchemaStrict: config.plannerSchemaStrict,
         stream: config.stream,
       });
+      loopState.lastSuccessfulPlannerDecision = {
+        action: planResult.action,
+        planState: planResult.planState,
+        reasoning: planResult.reasoning,
+        userMessage: planResult.userMessage,
+      };
       observer?.onPlannerReasoning?.({
         reasoning: planResult.reasoning,
         step: stepNumber,
