@@ -756,13 +756,6 @@ export class BridgeController {
       });
 
       const result = turn.result;
-      if (isFirstTurn) {
-        void scheduleSessionTitleFromFirstUserMessage({
-          client: this.client,
-          sessionId: this.sessionId,
-          userMessage: message,
-        });
-      }
       this.turns.push({
         assistant: result.message,
         finalState: result.finalState,
@@ -771,6 +764,15 @@ export class BridgeController {
       });
 
       await this.enqueueStream(() => this.emitAssistantMessage(result.message, result.finalState));
+      if (isFirstTurn) {
+        globalThis.queueMicrotask(() => {
+          void scheduleSessionTitleFromFirstUserMessage({
+            client: this.client,
+            sessionId: this.sessionId,
+            userMessage: message,
+          });
+        });
+      }
       this.updateState({
         runState: result.finalState,
         turnCount: this.turns.length,

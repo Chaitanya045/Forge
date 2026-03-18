@@ -1,8 +1,6 @@
 import type { FileImportanceMap, MemoryGraphEdge, MemoryGraphNode } from "./types";
 
-import { fsReadFile, fsWriteFile } from "../tools/system/fs";
-import { getBrainPaths } from "./paths";
-import { fileImportanceSchema } from "./types";
+import { getCachedFileImportance, writeCachedFileImportance } from "./state-cache";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -18,28 +16,6 @@ export function createInitialFileImportanceMap(): FileImportanceMap {
 
 export function serializeFileImportanceMap(fileImportance: FileImportanceMap): string {
   return `${JSON.stringify(fileImportance, null, 2)}\n`;
-}
-
-async function parseJsonFile<T>(
-  pathValue: string,
-  safeParse: (value: unknown) => {
-    data?: T;
-    success: boolean;
-  },
-  fallback: T
-): Promise<T> {
-  try {
-    const content = await fsReadFile(pathValue, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    const validated = safeParse(parsed);
-    return validated.success && validated.data !== undefined ? validated.data : fallback;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return fallback;
-    }
-
-    return fallback;
-  }
 }
 
 function buildFileNodeId(pathValue: string): string {
@@ -59,20 +35,42 @@ function normalizePath(pathValue: string): string {
   return pathValue.replace(/\\/gu, "/");
 }
 
-function getFileNode(
-  filePath: string,
-  graphNodes: MemoryGraphNode[]
-): MemoryGraphNode | undefined {
-  const fileNodeId = buildFileNodeId(filePath);
-  return graphNodes.find((node) => node.id === fileNodeId);
+type GraphLookup = {
+  edgesByNodeId: Map<string, MemoryGraphEdge[]>;
+  nodesById: Map<string, MemoryGraphNode>;
+};
+
+function buildGraphLookup(input: {
+  graphEdges: MemoryGraphEdge[];
+  graphNodes: MemoryGraphNode[];
+}): GraphLookup {
+  const nodesById = new Map(input.graphNodes.map((node) => [node.id, node]));
+  const edgesByNodeId = new Map<string, MemoryGraphEdge[]>();
+
+  for (const edge of input.graphEdges) {
+    const fromEdges = edgesByNodeId.get(edge.from) ?? [];
+    fromEdges.push(edge);
+    edgesByNodeId.set(edge.from, fromEdges);
+
+    if (edge.to !== edge.from) {
+      const toEdges = edgesByNodeId.get(edge.to) ?? [];
+      toEdges.push(edge);
+      edgesByNodeId.set(edge.to, toEdges);
+    }
+  }
+
+  return {
+    edgesByNodeId,
+    nodesById,
+  };
 }
 
-function getRelatedEdges(
-  filePath: string,
-  graphEdges: MemoryGraphEdge[]
-): MemoryGraphEdge[] {
-  const fileNodeId = buildFileNodeId(filePath);
-  return graphEdges.filter((edge) => edge.from === fileNodeId || edge.to === fileNodeId);
+function getFileNode(filePath: string, lookup: GraphLookup): MemoryGraphNode | undefined {
+  return lookup.nodesById.get(buildFileNodeId(filePath));
+}
+
+function getRelatedEdges(filePath: string, lookup: GraphLookup): MemoryGraphEdge[] {
+  return lookup.edgesByNodeId.get(buildFileNodeId(filePath)) ?? [];
 }
 
 function countSessionTouchFrequency(relatedEdges: MemoryGraphEdge[]): {
@@ -100,18 +98,17 @@ function countSessionTouchFrequency(relatedEdges: MemoryGraphEdge[]): {
 
 function countLinkedConcepts(
   filePath: string,
-  graphEdges: MemoryGraphEdge[],
-  graphNodes: MemoryGraphNode[]
+  lookup: GraphLookup,
+  relatedEdges: MemoryGraphEdge[]
 ): LinkedConceptCounts {
   const fileNodeId = buildFileNodeId(filePath);
   const linkedNodeIds = new Set(
-    graphEdges
-      .filter((edge) => edge.to === fileNodeId || edge.from === fileNodeId)
+    relatedEdges
       .flatMap((edge) => [edge.from, edge.to])
       .filter((nodeId) => nodeId !== fileNodeId)
   );
 
-  return graphNodes.reduce<LinkedConceptCounts>(
+  return Array.from(lookup.nodesById.values()).reduce<LinkedConceptCounts>(
     (counts, node) => {
       if (!linkedNodeIds.has(node.id)) {
         return counts;
@@ -174,16 +171,15 @@ function computeFileImportanceScore(input: {
   changedThisTurn: boolean;
   existingScore: number;
   fileNode: MemoryGraphNode | undefined;
-  graphEdges: MemoryGraphEdge[];
-  graphNodes: MemoryGraphNode[];
+  lookup: GraphLookup;
   relatedEdges: MemoryGraphEdge[];
   touchedFile: string;
 }): number {
   const sessionTouchFrequency = countSessionTouchFrequency(input.relatedEdges);
   const linkedConcepts = countLinkedConcepts(
     input.touchedFile,
-    input.graphEdges,
-    input.graphNodes
+    input.lookup,
+    input.relatedEdges
   );
   const editFrequencyScore = clampUnitInterval(
     (sessionTouchFrequency.modified * 2 + sessionTouchFrequency.inspected) / 8
@@ -215,34 +211,36 @@ export async function recomputeTouchedFileImportance(input: {
   workspaceRoot?: string;
 }): Promise<FileImportanceMap> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
-  const paths = getBrainPaths(workspaceRoot);
-  const existingMap = await parseJsonFile(
-    paths.fileImportanceFile,
-    (value) => fileImportanceSchema.safeParse(value),
-    createInitialFileImportanceMap()
-  );
+  const existingMap = await getCachedFileImportance(workspaceRoot);
   const changedFileSet = new Set(input.changedFiles.map((pathValue) => normalizePath(pathValue)));
   const touchedFiles = Array.from(
     new Set(input.touchedFiles.map((pathValue) => normalizePath(pathValue)).filter(Boolean))
   );
+  const lookup = buildGraphLookup({
+    graphEdges: input.graphEdges,
+    graphNodes: input.graphNodes,
+  });
   const nextMap: FileImportanceMap = { ...existingMap };
 
   for (const touchedFile of touchedFiles) {
     const existingScore = nextMap[touchedFile] ?? 0;
-    const relatedEdges = getRelatedEdges(touchedFile, input.graphEdges);
-    const fileNode = getFileNode(touchedFile, input.graphNodes);
+    const relatedEdges = getRelatedEdges(touchedFile, lookup);
+    const fileNode = getFileNode(touchedFile, lookup);
 
     nextMap[touchedFile] = computeFileImportanceScore({
       changedThisTurn: changedFileSet.has(touchedFile),
       existingScore,
       fileNode,
-      graphEdges: input.graphEdges,
-      graphNodes: input.graphNodes,
+      lookup,
       relatedEdges,
       touchedFile,
     });
   }
 
-  await fsWriteFile(paths.fileImportanceFile, serializeFileImportanceMap(nextMap), "utf8");
+  await writeCachedFileImportance(
+    workspaceRoot,
+    nextMap,
+    serializeFileImportanceMap(nextMap)
+  );
   return nextMap;
 }

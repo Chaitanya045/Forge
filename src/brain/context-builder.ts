@@ -1,16 +1,13 @@
 import type { LlmMessage } from "../llm/types";
 import type { BrainPaths } from "./paths";
-import type { CurrentPlan, WorkingMemory } from "./types";
+import type { CurrentPlan, PlannerStep, WorkingMemory } from "./types";
 
-import { fsReadFile } from "../tools/system/fs";
 import { searchMemory, type ImportantFileEntry, type MemorySearchResult } from "./memory-retriever";
-import { getBrainPaths } from "./paths";
 import {
-  createInitialCurrentPlan,
-  createInitialWorkingMemory,
-  currentPlanSchema,
-  workingMemorySchema,
-} from "./types";
+  getCachedCurrentPlan,
+  getCachedIdentity,
+  getCachedWorkingMemory,
+} from "./state-cache";
 
 export type BrainContextFileDescriptor = {
   alwaysLoad: boolean;
@@ -73,24 +70,6 @@ export function injectSystemContextMessage(messages: LlmMessage[], content: stri
   ];
 }
 
-async function parseJsonFile<T>(
-  pathValue: string,
-  safeParse: (value: unknown) => {
-    data?: T;
-    success: boolean;
-  },
-  fallback: T
-): Promise<T> {
-  try {
-    const content = await fsReadFile(pathValue, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    const validated = safeParse(parsed);
-    return validated.success && validated.data !== undefined ? validated.data : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function formatImportantFiles(importantFiles: ImportantFileEntry[]): string {
   if (importantFiles.length === 0) {
     return "- none recorded";
@@ -120,31 +99,71 @@ function formatKeywords(keywords: string[]): string {
   return keywords.length > 0 ? keywords.join(", ") : "none";
 }
 
-async function readTextFile(pathValue: string): Promise<string> {
-  try {
-    return await fsReadFile(pathValue, "utf8");
-  } catch {
-    return "";
+function clipLine(value: string, maxLength: number): string {
+  const trimmed = value.replace(/\s+/gu, " ").trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
   }
+
+  return `${trimmed.slice(0, Math.max(0, maxLength - 16)).trimEnd()}...[truncated]`;
+}
+
+function selectRecentItems<T>(values: T[], limit: number): T[] {
+  if (limit <= 0) {
+    return [];
+  }
+
+  return values.slice(-limit);
+}
+
+function trimIdentity(identity: string): string {
+  const lines = identity
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+
+  return lines.slice(0, 14).join("\n");
+}
+
+function summarizePlanSteps(steps: PlannerStep[]): string[] {
+  return steps.slice(0, 4).map((step) => {
+    const relevantFiles = step.relevantFiles.length > 0
+      ? ` files=${step.relevantFiles.slice(0, 3).join(", ")}`
+      : "";
+    return `- [${step.status}] ${clipLine(step.title, 80)}${relevantFiles}`;
+  });
+}
+
+function formatWorkingMemorySummary(workingMemory: WorkingMemory): string {
+  const lines = [
+    `- goal: ${workingMemory.goal ?? "none"}`,
+    `- current_step: ${workingMemory.currentStep ?? "none"}`,
+    `- active_plan_step_id: ${workingMemory.activePlanStepId ?? "none"}`,
+    `- relevant_files: ${workingMemory.relevantFiles.slice(0, 6).join(", ") || "none"}`,
+    `- recent_decisions: ${selectRecentItems(workingMemory.recentDecisions, 3).join(" | ") || "none"}`,
+  ];
+
+  return lines.join("\n");
+}
+
+function formatCurrentPlanSummary(currentPlan: CurrentPlan): string {
+  const stepLines = summarizePlanSteps(currentPlan.steps);
+  return [
+    `- goal: ${currentPlan.goal ?? "none"}`,
+    `- current_step_id: ${currentPlan.currentStepId ?? "none"}`,
+    `- steps: ${String(currentPlan.steps.length)}`,
+    ...(stepLines.length > 0 ? stepLines : ["- no active steps"]),
+  ].join("\n");
 }
 
 export async function buildBrainContextMessage(
   input: BrainContextBuildInput
 ): Promise<BrainContextBuildResult> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
-  const paths = getBrainPaths(workspaceRoot);
   const [identity, workingMemory, currentPlan] = await Promise.all([
-    readTextFile(paths.identityFile),
-    parseJsonFile(
-      paths.workingMemoryFile,
-      (value) => workingMemorySchema.safeParse(value),
-      createInitialWorkingMemory()
-    ),
-    parseJsonFile(
-      paths.currentPlanFile,
-      (value) => currentPlanSchema.safeParse(value),
-      createInitialCurrentPlan()
-    ),
+    getCachedIdentity(workspaceRoot),
+    getCachedWorkingMemory(workspaceRoot),
+    getCachedCurrentPlan(workspaceRoot),
   ]);
   const memorySearch = await searchMemory({
     currentPlan,
@@ -161,13 +180,13 @@ export async function buildBrainContextMessage(
     "Use this as supporting repository memory. Direct user instructions and current tool state still take priority.",
     "",
     "[identity]",
-    identity.trim() || "(empty)",
+    trimIdentity(identity) || "(empty)",
     "",
     "[working_memory]",
-    JSON.stringify(workingMemory, null, 2),
+    formatWorkingMemorySummary(workingMemory),
     "",
     "[current_plan]",
-    JSON.stringify(currentPlan, null, 2),
+    formatCurrentPlanSummary(currentPlan),
     "",
     "[retrieved_memory_keywords]",
     formatKeywords(memorySearch.keywords),

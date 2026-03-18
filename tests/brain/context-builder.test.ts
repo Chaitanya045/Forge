@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildBrainContextMessage, ensureBrainStructure } from "../../src/brain";
+import { buildBrainContextMessage, clearBrainStateCache, ensureBrainStructure } from "../../src/brain";
 
 async function seedBrainWorkspace(workspaceRoot: string): Promise<void> {
   await mkdir(join(workspaceRoot, "src"), { recursive: true });
@@ -84,6 +84,7 @@ describe("brain context builder", () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "zace-brain-context-"));
 
     try {
+      clearBrainStateCache();
       await seedBrainWorkspace(workspaceRoot);
 
       const result = await buildBrainContextMessage({
@@ -101,6 +102,9 @@ describe("brain context builder", () => {
       expect(result.message.content).toContain("[current_plan]");
       expect(result.message.content).toContain("Login null token bug");
       expect(result.message.content).toContain("[important_files]");
+      expect(result.message.content).not.toContain('"recentDecisions"');
+      expect(result.message.content).toContain("- goal: fix login bug");
+      expect(result.message.content).toContain("- [in_progress] Inspect auth token validation");
       expect(result.importantFiles).toHaveLength(2);
       expect(result.importantFiles[0]?.path).toBe("src/auth.ts");
       expect(result.retrievedSnippets.length).toBeLessThanOrEqual(3);
@@ -111,6 +115,7 @@ describe("brain context builder", () => {
       ) as Record<string, unknown>;
       expect(workingMemory.goal).toBe("fix login bug");
     } finally {
+      clearBrainStateCache();
       await rm(workspaceRoot, { force: true, recursive: true });
     }
   });

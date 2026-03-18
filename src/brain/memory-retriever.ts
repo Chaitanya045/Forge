@@ -7,14 +7,11 @@ import { fsReadFile, fsReaddir, fsStat } from "../tools/system/fs";
 import { spawnProcess } from "../tools/system/process";
 import { getBrainPaths, toWorkspaceRelativePath } from "./paths";
 import {
-  createInitialCurrentPlan,
-  createInitialWorkingMemory,
-  currentPlanSchema,
-  fileImportanceSchema,
-  memoryGraphEdgesSchema,
-  memoryGraphNodesSchema,
-  workingMemorySchema,
-} from "./types";
+  getCachedCurrentPlan,
+  getCachedFileImportance,
+  getCachedMemoryGraph,
+  getCachedWorkingMemory,
+} from "./state-cache";
 
 const MEMORY_QUERY_STOP_WORDS = new Set([
   "about",
@@ -339,34 +336,8 @@ async function listMarkdownFiles(
   }
 }
 
-async function parseJsonFile<T>(
-  pathValue: string,
-  safeParse: (value: unknown) => {
-    data?: T;
-    success: boolean;
-  },
-  fallback: T
-): Promise<T> {
-  try {
-    const content = await fsReadFile(pathValue, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    const validated = safeParse(parsed);
-    return validated.success && validated.data !== undefined ? validated.data : fallback;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return fallback;
-    }
-
-    return fallback;
-  }
-}
-
-async function readFileImportanceMap(paths: BrainPaths): Promise<FileImportanceMap> {
-  return await parseJsonFile(
-    paths.fileImportanceFile,
-    (value) => fileImportanceSchema.safeParse(value),
-    {}
-  );
+async function readFileImportanceMap(workspaceRoot: string): Promise<FileImportanceMap> {
+  return await getCachedFileImportance(workspaceRoot);
 }
 
 async function readImportantFiles(
@@ -398,12 +369,8 @@ async function readImportantFiles(
     .map(({ path, score }) => ({ path, score }));
 }
 
-async function readWorkingMemory(paths: BrainPaths): Promise<WorkingMemory> {
-  return await parseJsonFile(
-    paths.workingMemoryFile,
-    (value) => workingMemorySchema.safeParse(value),
-    createInitialWorkingMemory()
-  );
+async function readWorkingMemory(workspaceRoot: string): Promise<WorkingMemory> {
+  return await getCachedWorkingMemory(workspaceRoot);
 }
 
 async function runRipgrepSearch(
@@ -613,10 +580,8 @@ async function searchGraphMemories(
     workspaceRoot: string;
   }
 ): Promise<RankedMemorySnippet[]> {
-  const [nodes, edges] = await Promise.all([
-    parseJsonFile(paths.nodesFile, (value) => memoryGraphNodesSchema.safeParse(value), []),
-    parseJsonFile(paths.edgesFile, (value) => memoryGraphEdgesSchema.safeParse(value), []),
-  ]);
+  const graph = await getCachedMemoryGraph(input.workspaceRoot);
+  const { edges, nodes } = graph;
 
   const nodeSnippets = nodes
     .map((node) =>
@@ -648,12 +613,8 @@ async function searchGraphMemories(
 export async function searchMemory(input: MemorySearchInput): Promise<MemorySearchResult> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
   const paths = getBrainPaths(workspaceRoot);
-  const workingMemory = input.workingMemory ?? await readWorkingMemory(paths);
-  const currentPlan = input.currentPlan ?? await parseJsonFile(
-    paths.currentPlanFile,
-    (value) => currentPlanSchema.safeParse(value),
-    createInitialCurrentPlan()
-  );
+  const workingMemory = input.workingMemory ?? await readWorkingMemory(workspaceRoot);
+  const currentPlan = input.currentPlan ?? await getCachedCurrentPlan(workspaceRoot);
   const activePlanStep = findActivePlanStep(currentPlan);
   const relevantFiles = Array.from(
     new Set([
@@ -671,7 +632,7 @@ export async function searchMemory(input: MemorySearchInput): Promise<MemorySear
   ].join(" "));
   const maxImportantFiles = Math.max(1, input.maxImportantFiles ?? IMPORTANT_FILE_LIMIT);
   const maxSnippets = Math.max(1, input.maxSnippets ?? RETRIEVED_SNIPPET_LIMIT);
-  const fileImportance = await readFileImportanceMap(paths);
+  const fileImportance = await readFileImportanceMap(workspaceRoot);
   const importantFiles = await readImportantFiles(fileImportance, {
     keywords,
     maxImportantFiles,

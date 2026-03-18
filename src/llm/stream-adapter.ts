@@ -46,6 +46,7 @@ export type CreateLlmStreamCallbacksInput = {
   onStreamStart?: () => void;
   onStreamToken?: (token: string) => void;
   phase: StreamPhase;
+  persistToSession?: boolean;
   runId: string;
   sessionStore?: SessionStoreWrite;
   step: number;
@@ -117,7 +118,7 @@ export function createLlmStreamCallbacks(input: CreateLlmStreamCallbacksInput): 
       input.onStreamStart?.();
       started = true;
 
-      if (input.sessionStore) {
+      if (input.sessionStore && input.persistToSession !== false) {
         const sessionStore = input.sessionStore;
         messageId = newMessageId();
         partId = newPartId();

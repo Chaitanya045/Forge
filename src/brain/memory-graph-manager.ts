@@ -1,8 +1,8 @@
 import type { MemoryGraphEdge, MemoryGraphNode } from "./types";
 
-import { fsReadFile, fsWriteFile } from "../tools/system/fs";
+import { fsWriteFile } from "../tools/system/fs";
 import { getBrainPaths } from "./paths";
-import { memoryGraphEdgesSchema, memoryGraphNodesSchema } from "./types";
+import { getCachedMemoryGraph, setCachedMemoryGraph } from "./state-cache";
 
 export function createInitialMemoryGraphEdges(): MemoryGraphEdge[] {
   return [];
@@ -80,28 +80,6 @@ function classifyConceptTypes(text: string): GraphConceptType[] {
   return Array.from(new Set(types));
 }
 
-async function parseJsonFile<T>(
-  pathValue: string,
-  safeParse: (value: unknown) => {
-    data?: T;
-    success: boolean;
-  },
-  fallback: T
-): Promise<T> {
-  try {
-    const content = await fsReadFile(pathValue, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    const validated = safeParse(parsed);
-    return validated.success && validated.data !== undefined ? validated.data : fallback;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return fallback;
-    }
-
-    return fallback;
-  }
-}
-
 function upsertEdge(
   edges: MemoryGraphEdge[],
   nextEdge: Omit<MemoryGraphEdge, "updatedAt" | "weight"> & {
@@ -168,10 +146,7 @@ export async function updateMemoryGraphForTransition(
 ): Promise<GraphTransitionResult> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
   const paths = getBrainPaths(workspaceRoot);
-  const [existingNodes, existingEdges] = await Promise.all([
-    parseJsonFile(paths.nodesFile, (value) => memoryGraphNodesSchema.safeParse(value), createInitialMemoryGraphNodes()),
-    parseJsonFile(paths.edgesFile, (value) => memoryGraphEdgesSchema.safeParse(value), createInitialMemoryGraphEdges()),
-  ]);
+  const { edges: existingEdges, nodes: existingNodes } = await getCachedMemoryGraph(workspaceRoot);
   const now = new Date().toISOString();
   const touchedFiles = Array.from(new Set(input.touchedFiles.filter(Boolean)));
   const changedFileSet = new Set(input.changedFiles);
@@ -241,6 +216,7 @@ export async function updateMemoryGraphForTransition(
     fsWriteFile(paths.nodesFile, serializeMemoryGraphNodes(nodes), "utf8"),
     fsWriteFile(paths.edgesFile, serializeMemoryGraphEdges(edges), "utf8"),
   ]);
+  setCachedMemoryGraph(workspaceRoot, { edges, nodes });
 
   return {
     edges,
@@ -253,10 +229,7 @@ export async function recordArtifactLinks(
 ): Promise<GraphTransitionResult> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
   const paths = getBrainPaths(workspaceRoot);
-  const [existingNodes, existingEdges] = await Promise.all([
-    parseJsonFile(paths.nodesFile, (value) => memoryGraphNodesSchema.safeParse(value), createInitialMemoryGraphNodes()),
-    parseJsonFile(paths.edgesFile, (value) => memoryGraphEdgesSchema.safeParse(value), createInitialMemoryGraphEdges()),
-  ]);
+  const { edges: existingEdges, nodes: existingNodes } = await getCachedMemoryGraph(workspaceRoot);
   const now = new Date().toISOString();
   const relatedFiles = Array.from(new Set((input.relatedFiles ?? []).filter(Boolean)));
   const artifactPath = input.artifactPath.replace(/\\/gu, "/");
@@ -314,6 +287,7 @@ export async function recordArtifactLinks(
     fsWriteFile(paths.nodesFile, serializeMemoryGraphNodes(nodes), "utf8"),
     fsWriteFile(paths.edgesFile, serializeMemoryGraphEdges(edges), "utf8"),
   ]);
+  setCachedMemoryGraph(workspaceRoot, { edges, nodes });
 
   return {
     edges,

@@ -21,6 +21,15 @@ function deduplicate(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function shouldPersistCompactionSummary(summary: string): boolean {
+  const normalized = summary.replace(/\s+/gu, " ").trim();
+  if (normalized.length < 24) {
+    return false;
+  }
+
+  return /\b(goal|next|changed|file|summary|plan|context)\b/iu.test(normalized);
+}
+
 function normalizeRelativePaths(
   workspaceRoot: string,
   paths: string[]
@@ -310,6 +319,10 @@ export async function recordCompactionSummary(input: {
   summary: string;
   workspaceRoot?: string;
 }): Promise<string> {
+  if (!shouldPersistCompactionSummary(input.summary)) {
+    return "";
+  }
+
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
   const paths = getBrainPaths(workspaceRoot);
   const sessionId = input.sessionId ?? "standalone";

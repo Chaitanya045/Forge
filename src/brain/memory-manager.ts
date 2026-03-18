@@ -27,6 +27,11 @@ import {
 } from "./repo-mapper";
 import { recordCompactionSummary, recordTurnLongTermMemory } from "./session-logger";
 import {
+  getCachedCurrentPlan,
+  getCachedWorkingMemory,
+  writeCachedWorkingMemory,
+} from "./state-cache";
+import {
   createInitialCompletedTasks,
   serializeCompletedTasks,
   serializeCurrentPlan,
@@ -34,8 +39,6 @@ import {
 import {
   createInitialCurrentPlan,
   createInitialWorkingMemory,
-  currentPlanSchema,
-  workingMemorySchema,
 } from "./types";
 
 export type BrainBootstrapResult = {
@@ -168,28 +171,6 @@ async function readExistingFile(pathValue: string): Promise<string | undefined> 
   }
 }
 
-async function parseJsonFile<T>(
-  pathValue: string,
-  safeParse: (value: unknown) => {
-    data?: T;
-    success: boolean;
-  },
-  fallback: T
-): Promise<T> {
-  try {
-    const content = await fsReadFile(pathValue, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    const validated = safeParse(parsed);
-    return validated.success && validated.data !== undefined ? validated.data : fallback;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return fallback;
-    }
-
-    return fallback;
-  }
-}
-
 function appendRecentDecision(recentDecisions: string[], reasoning: string): string[] {
   if (!/\b(decision|decide|architecture|architectural|convention|policy|standardize|switch)\b/iu.test(reasoning)) {
     return recentDecisions;
@@ -237,24 +218,19 @@ function normalizeWorkspacePaths(workspaceRoot: string, values: string[]): strin
   );
 }
 
-async function readCurrentPlan(paths: BrainPaths): Promise<CurrentPlan> {
-  return await parseJsonFile(
-    paths.currentPlanFile,
-    (value) => currentPlanSchema.safeParse(value),
-    createInitialCurrentPlan()
-  );
+async function readCurrentPlan(workspaceRoot: string): Promise<CurrentPlan> {
+  return await getCachedCurrentPlan(workspaceRoot);
 }
 
-async function readWorkingMemory(paths: BrainPaths): Promise<WorkingMemory> {
-  return await parseJsonFile(
-    paths.workingMemoryFile,
-    (value) => workingMemorySchema.safeParse(value),
-    createInitialWorkingMemory()
-  );
+async function readWorkingMemory(workspaceRoot: string): Promise<WorkingMemory> {
+  return await getCachedWorkingMemory(workspaceRoot);
 }
 
-async function writeWorkingMemory(paths: BrainPaths, workingMemory: WorkingMemory): Promise<void> {
-  await fsWriteFile(paths.workingMemoryFile, `${JSON.stringify(workingMemory, null, 2)}\n`, "utf8");
+async function writeWorkingMemory(
+  workspaceRoot: string,
+  workingMemory: WorkingMemory
+): Promise<void> {
+  await writeCachedWorkingMemory(workspaceRoot, workingMemory);
 }
 
 function buildPlannerCurrentStep(input: {
@@ -409,10 +385,9 @@ export async function initializeTurnWorkingMemory(input: {
   workspaceRoot?: string;
 }): Promise<WorkingMemory> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
-  const paths = getBrainPaths(workspaceRoot);
   const [currentPlan, existingWorkingMemory] = await Promise.all([
-    readCurrentPlan(paths),
-    readWorkingMemory(paths),
+    readCurrentPlan(workspaceRoot),
+    readWorkingMemory(workspaceRoot),
   ]);
   const relevantFiles = deduplicatePaths([
     ...existingWorkingMemory.relevantFiles,
@@ -428,7 +403,7 @@ export async function initializeTurnWorkingMemory(input: {
     sessionId: input.sessionId ?? existingWorkingMemory.sessionId,
   };
 
-  await writeWorkingMemory(paths, nextWorkingMemory);
+  await writeWorkingMemory(workspaceRoot, nextWorkingMemory);
   return nextWorkingMemory;
 }
 
@@ -436,10 +411,9 @@ export async function recordPlannerTransition(
   input: PlannerTransitionInput
 ): Promise<WorkingMemory> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
-  const paths = getBrainPaths(workspaceRoot);
   const [currentPlan, existingWorkingMemory] = await Promise.all([
-    readCurrentPlan(paths),
-    readWorkingMemory(paths),
+    readCurrentPlan(workspaceRoot),
+    readWorkingMemory(workspaceRoot),
   ]);
   const planStateRelevantFiles = input.planState
     ? input.planState.steps.flatMap((step) => step.relevantFiles ?? [])
@@ -464,16 +438,15 @@ export async function recordPlannerTransition(
     sessionId: input.sessionId ?? existingWorkingMemory.sessionId,
   };
 
-  await writeWorkingMemory(paths, nextWorkingMemory);
+  await writeWorkingMemory(workspaceRoot, nextWorkingMemory);
   return nextWorkingMemory;
 }
 
 export async function recordToolTransition(input: ToolTransitionInput): Promise<WorkingMemory> {
   const workspaceRoot = input.workspaceRoot ?? process.cwd();
-  const paths = getBrainPaths(workspaceRoot);
   const [currentPlan, existingWorkingMemory] = await Promise.all([
-    readCurrentPlan(paths),
-    readWorkingMemory(paths),
+    readCurrentPlan(workspaceRoot),
+    readWorkingMemory(workspaceRoot),
   ]);
   const changedFiles = normalizeWorkspacePaths(workspaceRoot, input.changedFiles);
   const touchedFiles = deduplicatePaths([
@@ -498,7 +471,7 @@ export async function recordToolTransition(input: ToolTransitionInput): Promise<
     sessionId: input.sessionId ?? existingWorkingMemory.sessionId,
   };
 
-  await writeWorkingMemory(paths, nextWorkingMemory);
+  await writeWorkingMemory(workspaceRoot, nextWorkingMemory);
 
   if (touchedFiles.length === 0) {
     return nextWorkingMemory;

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  clearBrainStateCache,
   ensureBrainStructure,
   initializeTurnWorkingMemory,
   persistPlannerState,
@@ -16,6 +17,7 @@ describe("brain turn updates", () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "zace-brain-turn-updates-"));
 
     try {
+      clearBrainStateCache();
       await mkdir(join(workspaceRoot, "src"), { recursive: true });
       await writeFile(join(workspaceRoot, "README.md"), "# Zace\n", "utf8");
       await ensureBrainStructure({ workspaceRoot });
@@ -109,6 +111,7 @@ describe("brain turn updates", () => {
       expect(edges.some((edge) => edge.type === "modified_in_session")).toBeTrue();
       expect(fileImportance["src/auth.ts"]).toBeGreaterThan(0);
     } finally {
+      clearBrainStateCache();
       await rm(workspaceRoot, { force: true, recursive: true });
     }
   });

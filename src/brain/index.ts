@@ -6,5 +6,6 @@ export * from "./memory-retriever";
 export * from "./paths";
 export * from "./repo-mapper";
 export * from "./session-logger";
+export * from "./state-cache";
 export * from "./task-planner";
 export * from "./types";

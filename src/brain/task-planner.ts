@@ -2,6 +2,7 @@ import type { PlannerPlanState } from "../agent/planner/schema";
 
 import { fsReadFile, fsWriteFile } from "../tools/system/fs";
 import { getBrainPaths } from "./paths";
+import { setCachedCurrentPlan } from "./state-cache";
 import {
   completedTasksSchema,
   createInitialCurrentPlan,
@@ -196,6 +197,7 @@ export async function persistPlannerState(input: {
 
   await fsWriteFile(paths.currentPlanFile, serializeCurrentPlan(nextCurrentPlan), "utf8");
   await fsWriteFile(paths.completedTasksFile, serializeCompletedTasks(nextCompletedTasks), "utf8");
+  setCachedCurrentPlan(workspaceRoot, nextCurrentPlan);
 
   return {
     completedTasks: nextCompletedTasks,

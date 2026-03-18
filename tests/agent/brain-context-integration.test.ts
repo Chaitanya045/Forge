@@ -9,7 +9,7 @@ import type { AgentContext } from "../../src/types/agent";
 
 import { analyzeToolResult } from "../../src/agent/executor";
 import { plan } from "../../src/agent/planner";
-import { ensureBrainStructure } from "../../src/brain";
+import { clearBrainStateCache, ensureBrainStructure } from "../../src/brain";
 
 async function seedBrainWorkspace(workspaceRoot: string): Promise<void> {
   await mkdir(join(workspaceRoot, "src"), { recursive: true });
@@ -63,6 +63,7 @@ describe("brain context integration", () => {
     let seenMessages: LlmMessage[] = [];
 
     try {
+      clearBrainStateCache();
       await seedBrainWorkspace(workspaceRoot);
       process.chdir(workspaceRoot);
 
@@ -99,6 +100,7 @@ describe("brain context integration", () => {
       expect(brainMessage).toBeDefined();
       expect(brainMessage?.content).toContain("Authentication uses JWT bearer tokens.");
     } finally {
+      clearBrainStateCache();
       process.chdir(originalCwd);
       await rm(workspaceRoot, { force: true, recursive: true });
     }
@@ -110,6 +112,7 @@ describe("brain context integration", () => {
     let seenMessages: LlmMessage[] = [];
 
     try {
+      clearBrainStateCache();
       await seedBrainWorkspace(workspaceRoot);
       process.chdir(workspaceRoot);
 
@@ -143,6 +146,7 @@ describe("brain context integration", () => {
       expect(seenMessages[0]?.content).toContain("PERSISTENT BRAIN CONTEXT (EXECUTOR)");
       expect(seenMessages[0]?.content).toContain("Authentication uses JWT bearer tokens.");
     } finally {
+      clearBrainStateCache();
       process.chdir(originalCwd);
       await rm(workspaceRoot, { force: true, recursive: true });
     }
@@ -154,6 +158,7 @@ describe("brain context integration", () => {
     const seenMessages: LlmMessage[][] = [];
 
     try {
+      clearBrainStateCache();
       await seedBrainWorkspace(workspaceRoot);
       process.chdir(workspaceRoot);
 
@@ -199,6 +204,7 @@ describe("brain context integration", () => {
         seenMessages[1]?.some((message) => message.content.includes("PERSISTENT BRAIN CONTEXT (PLANNER)"))
       ).toBeFalse();
     } finally {
+      clearBrainStateCache();
       process.chdir(originalCwd);
       await rm(workspaceRoot, { force: true, recursive: true });
     }

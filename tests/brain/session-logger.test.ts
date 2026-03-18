@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  clearBrainStateCache,
   ensureBrainStructure,
   recordCompactionMemory,
   recordTurnFinalization,
@@ -14,6 +15,7 @@ describe("brain session logger", () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "zace-session-logger-"));
 
     try {
+      clearBrainStateCache();
       await mkdir(join(workspaceRoot, "src"), { recursive: true });
       await writeFile(join(workspaceRoot, "README.md"), "# Zace\n", "utf8");
       await writeFile(join(workspaceRoot, "src", "auth.ts"), "before\n", "utf8");
@@ -94,6 +96,7 @@ describe("brain session logger", () => {
         expect(gitArtifact).toContain("# Git Change Artifact");
       }
     } finally {
+      clearBrainStateCache();
       await rm(workspaceRoot, { force: true, recursive: true });
     }
   });
@@ -102,6 +105,7 @@ describe("brain session logger", () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "zace-compaction-summary-"));
 
     try {
+      clearBrainStateCache();
       await writeFile(join(workspaceRoot, "README.md"), "# Zace\n", "utf8");
       await ensureBrainStructure({ workspaceRoot });
 
@@ -127,6 +131,7 @@ describe("brain session logger", () => {
       expect(nodes.some((node) => node.filePath === summaryPath && node.type === "artifact")).toBeTrue();
       expect(edges.some((edge) => edge.type === "generated_summary")).toBeTrue();
     } finally {
+      clearBrainStateCache();
       await rm(workspaceRoot, { force: true, recursive: true });
     }
   });

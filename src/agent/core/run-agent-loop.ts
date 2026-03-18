@@ -505,6 +505,7 @@ export async function runAgentLoop(
           onStreamToken: (token) => {
             observer?.onPlannerStreamToken?.(token);
           },
+          persistToSession: false,
           phase: "planning",
           runId,
           sessionStore,
@@ -548,8 +549,6 @@ export async function runAgentLoop(
         task,
       });
 
-      memory.addMessage("assistant", `Planning: ${planResult.reasoning}`);
-
       const compactionResult = await maybeCompactContext({
         client,
         config,
@@ -567,7 +566,9 @@ export async function runAgentLoop(
               step: stepNumber,
               summary: compactionResult.summary,
             });
-            compactionSummaryPaths.push(summaryPath);
+            if (summaryPath) {
+              compactionSummaryPaths.push(summaryPath);
+            }
           } catch (error) {
             logError("Failed to persist compaction summary", error);
           }

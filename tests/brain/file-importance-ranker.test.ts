@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  clearBrainStateCache,
   ensureBrainStructure,
   recomputeTouchedFileImportance,
 } from "../../src/brain";
@@ -13,6 +14,7 @@ describe("file importance ranker", () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "zace-file-importance-"));
 
     try {
+      clearBrainStateCache();
       await ensureBrainStructure({ workspaceRoot });
       await writeFile(join(workspaceRoot, ".zace", "file_importance.json"), JSON.stringify({
         "src/legacy.ts": 0.42,
@@ -111,6 +113,7 @@ describe("file importance ranker", () => {
       expect(persistedScores["src/auth.ts"]).toBe(scores["src/auth.ts"]);
       expect(persistedScores["src/legacy.ts"]).toBe(0.42);
     } finally {
+      clearBrainStateCache();
       await rm(workspaceRoot, { force: true, recursive: true });
     }
   });
