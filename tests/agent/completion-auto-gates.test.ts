@@ -92,7 +92,7 @@ describe("completion auto-gates", () => {
               ].join("\n"),
               cwd: tempDirectoryPath,
             },
-            name: "execute_command",
+            name: "bash",
           },
         }),
         JSON.stringify({

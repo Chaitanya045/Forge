@@ -46,6 +46,12 @@ function coerceMessageEntries(entries: SessionEntry[]): MessageV2[] {
   return Array.from(messages.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+function filterStructuredEntries(entries: SessionEntry[]): SessionEntry[] {
+  return entries.filter(
+    (entry) => entry.type === "message_part_delta" || entry.type === "message_v2"
+  );
+}
+
 export function createJsonlSessionStore(sessionId: string): SessionStore {
   return {
     async appendMessage(message) {
@@ -60,7 +66,7 @@ export function createJsonlSessionStore(sessionId: string): SessionStore {
     },
     async readMessages() {
       const entries = await readSessionEntries(sessionId);
-      return coerceMessageEntries(entries);
+      return coerceMessageEntries(filterStructuredEntries(entries));
     },
   } satisfies SessionStore;
 }

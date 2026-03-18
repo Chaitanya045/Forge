@@ -9,7 +9,12 @@ import {
   scheduleSessionTitleFromFirstUserMessage,
   sanitizeSessionTitle,
 } from "../../src/session/session-title";
-import { appendSessionEntries, readSessionCatalogMetadata, readSessionEntries } from "../../src/tools/session";
+import {
+  appendSessionEntries,
+  appendSessionMessage,
+  readSessionCatalogMetadata,
+  readSessionEntries,
+} from "../../src/tools/session";
 
 describe("session title generation", () => {
   test("backfills missing titles and persists session_meta entries", async () => {
@@ -34,6 +39,10 @@ describe("session title generation", () => {
           userMessage: "please fix login bug in auth middleware",
         },
       ]);
+      await appendSessionMessage("session-one", {
+        content: "please fix login bug in auth middleware",
+        role: "user",
+      });
 
       const titled = await backfillMissingSessionTitles({
         client: {
@@ -92,6 +101,10 @@ describe("session title generation", () => {
           userMessage: "add caching to switch session listing",
         },
       ]);
+      await appendSessionMessage("fresh-session", {
+        content: "add caching to switch session listing",
+        role: "user",
+      });
 
       const title = await assignSessionTitleFromFirstUserMessage({
         client: {

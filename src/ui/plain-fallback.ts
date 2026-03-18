@@ -5,17 +5,16 @@ import type { AgentObserver } from "../agent/observer";
 import type { LlmClient } from "../llm/client";
 import type { AgentConfig } from "../types/config";
 
-import { runAgentLoop } from "../agent/loop";
 import {
   buildChatTaskWithFollowUpFromSession,
   loadSessionState,
-  persistSessionTurn,
   resolvePendingApprovalFromUserMessage,
   type ChatTurn,
 } from "../cli/chat-session";
 import { findOpenPendingPermission, resolvePendingPermissionFromUserMessage } from "../permission/resolve";
+import { SessionProcessor } from "../session/processor/session-processor";
 import { scheduleSessionTitleFromFirstUserMessage } from "../session/session-title";
-import { getSessionFilePath } from "../tools/session";
+import { getSessionFilePath, getSessionOpsFilePath } from "../tools/session";
 
 function createPlainStreamObserver(config: AgentConfig): AgentObserver | undefined {
   if (!config.stream) {
@@ -129,6 +128,7 @@ export async function runPlainChatMode(
   console.log("\n💬 Zace chat mode (plain fallback)");
   console.log("Commands: /status, /reset, /exit\n");
   console.log(`Session: ${sessionId} (${getSessionFilePath(sessionId)})`);
+  console.log(`Ops log: ${getSessionOpsFilePath(sessionId)}`);
   console.log(`Loaded turns: ${turns.length}\n`);
   if (pendingFollowUpQuestion) {
     console.log(`Pending follow-up question: ${pendingFollowUpQuestion}\n`);
@@ -228,18 +228,20 @@ export async function runPlainChatMode(
       });
       console.log(`\n🔨 Zace: ${message}\n`);
 
-      const startedAt = new Date();
       activeAbortController = new globalThis.AbortController();
       interruptRequested = false;
-      const result = await runAgentLoop(client, config, task, {
+      const turn = await SessionProcessor.runTurn({
         abortSignal: activeAbortController.signal,
         approvedCommandSignaturesOnce,
         approvedPermissionsOnce,
-        deferLongTermMemoryPersistence: true,
+        client,
+        config,
         observer: streamObserver,
         sessionId,
+        task,
+        userMessage: message,
       });
-      const endedAt = new Date();
+      const result = turn.result;
       activeAbortController = undefined;
 
       console.log(`\n${getResultIcon(result.success, result.finalState)} ${result.message}\n`);
@@ -247,7 +249,6 @@ export async function runPlainChatMode(
       console.log(`Final state: ${result.finalState}\n`);
 
       const isFirstTurn = turns.length === 0;
-      await persistSessionTurn(sessionId, message, task, result, startedAt, endedAt);
       if (isFirstTurn) {
         void scheduleSessionTitleFromFirstUserMessage({
           client,

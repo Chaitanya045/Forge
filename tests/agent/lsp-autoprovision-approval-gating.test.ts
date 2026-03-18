@@ -105,7 +105,7 @@ describe("runtime LSP auto-provision approval gating", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({

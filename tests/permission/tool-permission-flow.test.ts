@@ -10,7 +10,7 @@ import type { AgentConfig } from "../../src/types/config";
 
 import { handleExecutionPhase } from "../../src/agent/core/run-loop/execution-phase";
 import { createPermissionMemory } from "../../src/permission/memory";
-import { getSessionFilePath, readSessionEntries } from "../../src/tools/session";
+import { getSessionFilePath, getSessionOpsFilePath, readSessionEntries } from "../../src/tools/session";
 
 function createTestConfig(): AgentConfig {
   return {
@@ -77,10 +77,11 @@ function makeBaseInput(sessionId: string) {
     reasoning: "do a thing",
     toolCall: {
       arguments: {
+        action: "append_note",
         content: "hello",
-        role: "user",
+        sessionId,
       },
-      name: "write_session_message",
+      name: "memory_file",
     },
     transportStructured: true,
     usage: undefined,
@@ -155,10 +156,11 @@ function makeBaseInput(sessionId: string) {
 }
 
 describe("tool permission gating", () => {
-  test("blocks non-execute_command tool call when permission not yet granted", async () => {
+  test("blocks non-bash tool call when permission not yet granted", async () => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const sessionId = `test-permission-flow-${suffix}`;
     const sessionPath = getSessionFilePath(sessionId);
+    const sessionOpsPath = getSessionOpsFilePath(sessionId);
 
     try {
       const input = makeBaseInput(sessionId);
@@ -173,17 +175,19 @@ describe("tool permission gating", () => {
       expect(outcome.result.message).toContain("Permission required");
     } finally {
       await unlink(sessionPath).catch(() => undefined);
+      await unlink(sessionOpsPath).catch(() => undefined);
     }
   });
 
-  test("allows non-execute_command tool call after once approval and consumes it", async () => {
+  test("allows non-bash tool call after once approval and consumes it", async () => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const sessionId = `test-permission-flow-${suffix}`;
     const sessionPath = getSessionFilePath(sessionId);
+    const sessionOpsPath = getSessionOpsFilePath(sessionId);
 
     try {
       const input = makeBaseInput(sessionId);
-      input.permissionMemory.allowOnce("write_session_message", "write_session_message");
+      input.permissionMemory.allowOnce("memory_file", "memory_file");
 
       let toolCalls = 0;
       input.runToolCall = async () => {
@@ -208,13 +212,15 @@ describe("tool permission gating", () => {
       expect(toolCalls).toBe(1);
     } finally {
       await unlink(sessionPath).catch(() => undefined);
+      await unlink(sessionOpsPath).catch(() => undefined);
     }
   });
 
-  test("does not require PermissionNext for execute_command tool calls", async () => {
+  test("does not require PermissionNext for bash tool calls", async () => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const sessionId = `test-permission-flow-${suffix}`;
     const sessionPath = getSessionFilePath(sessionId);
+    const sessionOpsPath = getSessionOpsFilePath(sessionId);
 
     try {
       const input = makeBaseInput(sessionId);
@@ -225,7 +231,7 @@ describe("tool permission gating", () => {
             command: "echo hi",
             cwd: process.cwd(),
           },
-          name: "execute_command",
+          name: "bash",
         },
       };
 
@@ -246,6 +252,7 @@ describe("tool permission gating", () => {
       expect(hasPermissionPendingAction).toBe(false);
     } finally {
       await unlink(sessionPath).catch(() => undefined);
+      await unlink(sessionOpsPath).catch(() => undefined);
     }
   });
 });

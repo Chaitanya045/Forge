@@ -114,7 +114,7 @@ describe("lsp bootstrap failed status handling", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({

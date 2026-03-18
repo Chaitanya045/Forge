@@ -131,7 +131,7 @@ describe("post-write regression detection", () => {
                 arguments: {
                   command: "echo hi > src/file.ts",
                 },
-                name: "execute_command",
+                name: "bash",
               },
             }),
           };

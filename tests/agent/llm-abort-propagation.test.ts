@@ -81,7 +81,7 @@ describe("run loop LLM abort propagation", () => {
                 arguments: {
                   command: "echo hi",
                 },
-                name: "execute_command",
+                name: "bash",
               },
             }),
           };

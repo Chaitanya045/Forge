@@ -150,7 +150,7 @@ describe("lsp bootstrap probe on config change", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({
@@ -176,7 +176,7 @@ describe("lsp bootstrap probe on config change", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({

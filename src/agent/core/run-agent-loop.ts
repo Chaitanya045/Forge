@@ -22,8 +22,8 @@ import { createPermissionMemory } from "../../permission/memory";
 import { loadPermissionRuleset } from "../../permission/store";
 import { buildSystemPrompt } from "../../prompts/system";
 import { createJsonlSessionStore } from "../../session/store-jsonl";
-import { toolRegistry } from "../../tools";
-import { appendSessionMessage, getSessionFilePath } from "../../tools/session";
+import { modelVisibleTools } from "../../tools";
+import { getSessionFilePath } from "../../tools/session";
 import { log, logError, logStep } from "../../utils/logger";
 import {
   buildApprovalCommandSignature,
@@ -133,14 +133,7 @@ export async function runAgentLoop(
   const sessionFilePath = sessionId ? getSessionFilePath(sessionId) : undefined;
   const completionBlockRepeatLimit = Math.max(1, config.completionBlockRepeatLimit ?? 2);
   const memory = new Memory({
-    messageSink: sessionId
-      ? async (message) => {
-          await appendSessionMessage(sessionId, {
-            content: message.content,
-            role: message.role,
-          });
-        }
-      : undefined,
+    sessionId,
   });
   const sessionStore = sessionId ? createJsonlSessionStore(sessionId) : undefined;
   const loopState: RunLoopMutableState = {
@@ -393,7 +386,7 @@ export async function runAgentLoop(
   };
 
   const systemPrompt = buildSystemPrompt({
-    availableTools: toolRegistry.list().map((tool) => tool.name),
+    availableTools: modelVisibleTools.map((tool) => tool.name),
     commandAllowPatterns: config.commandAllowPatterns,
     commandDenyPatterns: config.commandDenyPatterns,
     completionCriteria: getCompletionCriteria(),
@@ -411,12 +404,6 @@ export async function runAgentLoop(
   memory.addMessage("system", systemPrompt);
 
   try {
-    if (sessionId) {
-      await appendSessionMessage(sessionId, {
-        content: task,
-        role: "user",
-      });
-    }
     await appendRunEvent({
       event: "run_started",
       observer,
@@ -493,6 +480,8 @@ export async function runAgentLoop(
         completionCriteria: getCompletionCriteria(),
         completionRequireLsp: config.completionRequireLsp,
         lastSuccessfulPlan: loopState.lastSuccessfulPlannerDecision,
+        maxBrainContextImportantFiles: 3,
+        maxBrainContextSnippets: 1,
         ...createLlmStreamCallbacks({
           callKind: "planner",
           emit: options?.onProcessorEvent,

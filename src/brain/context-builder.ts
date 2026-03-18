@@ -82,7 +82,7 @@ function formatImportantFiles(importantFiles: ImportantFileEntry[]): string {
 
 function formatRetrievedSnippets(snippets: MemorySearchResult["snippets"]): string {
   if (snippets.length === 0) {
-    return "- none matched";
+    return "- not loaded";
   }
 
   return snippets
@@ -177,7 +177,7 @@ export async function buildBrainContextMessage(
   const content = [
     `PERSISTENT BRAIN CONTEXT (${input.callKind.toUpperCase()})`,
     "",
-    "Use this as supporting repository memory. Direct user instructions and current tool state still take priority.",
+    "Use this as supporting repository memory. Prefer these as pointers into durable memory rather than full replayed context.",
     "",
     "[identity]",
     trimIdentity(identity) || "(empty)",
@@ -196,6 +196,9 @@ export async function buildBrainContextMessage(
     "",
     "[important_files]",
     formatImportantFiles(memorySearch.importantFiles),
+    "",
+    "[memory_policy]",
+    "- Retrieve older transcript/checkpoint details on demand instead of assuming they are already in prompt context.",
   ].join("\n");
 
   return {

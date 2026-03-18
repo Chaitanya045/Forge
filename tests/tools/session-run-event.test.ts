@@ -5,6 +5,7 @@ import {
   appendSessionMessage,
   appendSessionRunEvent,
   getSessionFilePath,
+  getSessionOpsFilePath,
   readSessionEntries,
 } from "../../src/tools/session";
 
@@ -17,6 +18,7 @@ describe("session run event journaling", () => {
   test("persists run_event entries alongside messages", async () => {
     const sessionId = createSessionId();
     const sessionPath = getSessionFilePath(sessionId);
+    const sessionOpsPath = getSessionOpsFilePath(sessionId);
 
     try {
       await appendSessionMessage(sessionId, {
@@ -48,6 +50,7 @@ describe("session run event journaling", () => {
       }
     } finally {
       await unlink(sessionPath).catch(() => undefined);
+      await unlink(sessionOpsPath).catch(() => undefined);
     }
   });
 });

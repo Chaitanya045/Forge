@@ -22,7 +22,7 @@ describe("planner context hygiene", () => {
     ].join("\n");
     const digest = buildToolMemoryDigest({
       attempt: 1,
-      toolName: "execute_command",
+      toolName: "bash",
       toolResult: {
         output: `[stdout]\n${listing}`,
         success: true,
@@ -40,7 +40,7 @@ describe("planner context hygiene", () => {
     const largeStderr = "B".repeat(5000);
     const digest = buildToolMemoryDigest({
       attempt: 1,
-      toolName: "execute_command",
+      toolName: "bash",
       toolResult: {
         output: [
           `[stdout]\n${largeStdout}`,

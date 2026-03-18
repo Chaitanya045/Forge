@@ -4,7 +4,7 @@ import type { AgentConfig } from "../types/config";
 
 import { EXECUTOR_ANALYSIS_MODES, isExecutorAnalysisMode } from "../config/env";
 import { LlmClient } from "../llm/client";
-import { getSessionFilePath } from "../tools/session";
+import { getSessionFilePath, getSessionOpsFilePath } from "../tools/session";
 import { getAgentConfig } from "../types/config";
 import { isInteractiveTerminal, runChatUi } from "../ui";
 import { runPlainChatMode } from "../ui/plain-fallback";
@@ -55,9 +55,11 @@ async function runChatCommand(options: CliOptions): Promise<void> {
 
   const sessionId = resolveOrCreateSessionId(options.session);
   const sessionPath = getSessionFilePath(sessionId);
+  const sessionOpsPath = getSessionOpsFilePath(sessionId);
 
   console.log(`\n💬 Zace chat`);
-  console.log(`Session: ${sessionId} (${sessionPath})\n`);
+  console.log(`Session: ${sessionId} (${sessionPath})`);
+  console.log(`Ops log: ${sessionOpsPath}\n`);
 
   if (isInteractiveTerminal()) {
     await runChatUi({

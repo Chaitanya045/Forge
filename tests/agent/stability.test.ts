@@ -9,11 +9,11 @@ import {
 
 describe("agent stability helpers", () => {
   test("buildToolCallSignature is stable across object key order", () => {
-    const signatureA = buildToolCallSignature("execute_command", {
+    const signatureA = buildToolCallSignature("bash", {
       command: "echo hello",
       cwd: "/repo",
     });
-    const signatureB = buildToolCallSignature("execute_command", {
+    const signatureB = buildToolCallSignature("bash", {
       command: "echo hello",
       cwd: "/repo",
     });
@@ -34,11 +34,11 @@ describe("agent stability helpers", () => {
 
   test("canonicalizes execute command signatures for abs/relative path and whitespace variants", () => {
     const repositoryRoot = resolve("/tmp/zace-signature-root");
-    const signatureA = buildToolCallSignature("execute_command", {
+    const signatureA = buildToolCallSignature("bash", {
       command: "  ls   -la   src/  ",
       cwd: repositoryRoot,
     });
-    const signatureB = buildToolCallSignature("execute_command", {
+    const signatureB = buildToolCallSignature("bash", {
       command: `ls -la ${repositoryRoot}/src`,
       cwd: repositoryRoot,
     });
@@ -53,14 +53,14 @@ describe("agent stability helpers", () => {
           reasoning: "step one",
           state: "executing",
           step: 1,
-          toolCall: { arguments: { command: "echo hi" }, name: "execute_command" },
+          toolCall: { arguments: { command: "echo hi" }, name: "bash" },
           toolResult: { artifacts: { progressSignal: "success_without_changes" }, output: "ok", success: true },
         },
         {
           reasoning: "step two",
           state: "executing",
           step: 2,
-          toolCall: { arguments: { command: "echo hi" }, name: "execute_command" },
+          toolCall: { arguments: { command: "echo hi" }, name: "bash" },
           toolResult: { artifacts: { progressSignal: "none" }, output: "ok", success: true },
         },
       ],

@@ -96,7 +96,7 @@ describe("lsp bootstrap attempt limit", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({
@@ -119,7 +119,7 @@ describe("lsp bootstrap attempt limit", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({

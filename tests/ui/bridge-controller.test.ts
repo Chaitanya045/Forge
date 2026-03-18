@@ -5,7 +5,11 @@ import type { LlmClient } from "../../src/llm/client";
 import type { AgentConfig } from "../../src/types/config";
 import type { BridgeEvent } from "../../src/ui/bridge/protocol";
 
-import { appendSessionEntries, getSessionFilePath } from "../../src/tools/session";
+import {
+  appendSessionEntries,
+  getSessionFilePath,
+  getSessionOpsFilePath,
+} from "../../src/tools/session";
 import { BridgeController } from "../../src/ui/bridge/controller";
 
 function createControllerConfig(): AgentConfig {
@@ -331,10 +335,12 @@ describe("BridgeController command orchestration", () => {
       expect(result.state.turnCount).toBe(0);
       expect(result.messages.length).toBe(0);
       await expect(access(result.state.sessionFilePath)).rejects.toBeDefined();
+      await expect(access(getSessionOpsFilePath(result.state.sessionId))).rejects.toBeDefined();
     } finally {
       await unlink(baseSessionPath).catch(() => undefined);
       if (createdSessionPath) {
         await unlink(createdSessionPath).catch(() => undefined);
+        await unlink(createdSessionPath.replace(/\.jsonl$/u, ".ops.jsonl")).catch(() => undefined);
       }
     }
   });

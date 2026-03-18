@@ -37,6 +37,7 @@ import { scheduleSessionTitleFromFirstUserMessage } from "../../session/session-
 import {
   appendSessionApprovalRule,
   getSessionFilePath,
+  getSessionOpsFilePath,
   listSessionCatalog,
   normalizeSessionId,
 } from "../../tools/session";
@@ -156,9 +157,13 @@ export class BridgeController {
 
     const normalizedSessionId = normalizeSessionId(sessionId);
     const nextSessionPath = getSessionFilePath(normalizedSessionId);
+    const nextSessionOpsPath = getSessionOpsFilePath(normalizedSessionId);
     try {
-      const fileStat = await fsStat(nextSessionPath);
-      if (!fileStat.isFile()) {
+      const [fileStat, opsStat] = await Promise.all([
+        fsStat(nextSessionPath).catch(() => undefined),
+        fsStat(nextSessionOpsPath).catch(() => undefined),
+      ]);
+      if (!fileStat?.isFile() && !opsStat?.isFile()) {
         throw new Error("Session path is not a file.");
       }
     } catch {

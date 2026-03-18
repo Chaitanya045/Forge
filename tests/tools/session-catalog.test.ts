@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   appendSessionEntries,
   appendSessionMetaTitle,
+  getSessionOpsFilePath,
   formatRelativeSessionTime,
   getSessionFilePath,
   listSessionCatalog,
@@ -101,8 +102,12 @@ describe("session catalog", () => {
 
       const olderPath = getSessionFilePath("older-session");
       const newerPath = getSessionFilePath("newer-session");
+      const olderOpsPath = getSessionOpsFilePath("older-session");
+      const newerOpsPath = getSessionOpsFilePath("newer-session");
       await utimes(olderPath, new Date("2026-03-02T12:00:00.000Z"), new Date("2026-03-02T12:00:00.000Z"));
       await utimes(newerPath, new Date("2026-03-04T11:00:00.000Z"), new Date("2026-03-04T11:00:00.000Z"));
+      await utimes(olderOpsPath, new Date("2026-03-02T12:00:00.000Z"), new Date("2026-03-02T12:00:00.000Z"));
+      await utimes(newerOpsPath, new Date("2026-03-04T11:00:00.000Z"), new Date("2026-03-04T11:00:00.000Z"));
 
       const catalog = await listSessionCatalog({ now });
 
@@ -137,6 +142,7 @@ describe("session catalog", () => {
         },
       ]);
       await appendFile(getSessionFilePath("broken-session"), "{not-json}\n", "utf8");
+      await appendFile(getSessionOpsFilePath("broken-session"), "", "utf8");
 
       const catalog = await listSessionCatalog({
         now: new Date("2026-03-04T13:00:00.000Z"),

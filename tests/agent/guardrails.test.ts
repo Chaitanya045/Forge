@@ -11,7 +11,7 @@ describe("agent guardrails", () => {
       output:
         "[artifacts]\nstdout: /tmp/11111111-1111-4111-8111-111111111111.stdout.log\nstderr: /tmp/11111111-1111-4111-8111-111111111111.stderr.log",
       success: true,
-      toolName: "execute_command",
+      toolName: "bash",
     });
     const signatureB = buildToolLoopSignature({
       argumentsObject: {
@@ -20,7 +20,7 @@ describe("agent guardrails", () => {
       output:
         "[artifacts]\nstdout: /tmp/22222222-2222-4222-8222-222222222222.stdout.log\nstderr: /tmp/22222222-2222-4222-8222-222222222222.stderr.log",
       success: true,
-      toolName: "execute_command",
+      toolName: "bash",
     });
 
     expect(signatureA).toBe(signatureB);
@@ -33,7 +33,7 @@ describe("agent guardrails", () => {
       },
       output: "ok",
       success: true,
-      toolName: "execute_command",
+      toolName: "bash",
     });
     const signatureB = buildToolLoopSignature({
       argumentsObject: {
@@ -41,7 +41,7 @@ describe("agent guardrails", () => {
       },
       output: "ok",
       success: true,
-      toolName: "execute_command",
+      toolName: "bash",
     });
 
     expect(signatureA).not.toBe(signatureB);

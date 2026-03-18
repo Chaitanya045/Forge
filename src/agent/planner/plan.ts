@@ -56,6 +56,8 @@ type PlanOptions = {
   completionCriteria?: string[];
   completionRequireLsp?: boolean;
   lastSuccessfulPlan?: PlannerDecisionSnapshot;
+  maxBrainContextImportantFiles?: number;
+  maxBrainContextSnippets?: number;
   onStreamEnd?: () => void;
   onStreamStart?: () => void;
   onStreamToken?: (token: string) => void;
@@ -166,6 +168,8 @@ export async function plan(
 
   const brainContext = await buildBrainContextMessage({
     callKind: "planner",
+    maxImportantFiles: options?.maxBrainContextImportantFiles,
+    maxRetrievedSnippets: options?.maxBrainContextSnippets,
     query: context.task,
     relevantFiles: Array.from(context.fileSummaries.keys()),
   });

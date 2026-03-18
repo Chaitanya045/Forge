@@ -83,14 +83,14 @@ RUNTIME SCRIPT PROTOCOL:
 10. When running a known script, prefer printing:
    ZACE_SCRIPT_USE|<script_id>
  11. When runtime script protocol enforcement is enabled, runtime blocks mutating or complex inline shell commands (heredocs, heavy redirection, multi-line, chained commands) unless executed via runtime scripts.
-12. For bash/execute_command tool calls, arguments.command is mandatory and must be a non-empty string.
+ 12. For bash tool calls, arguments.command is mandatory and must be a non-empty string.
 
 SESSION MEMORY PROTOCOL:
-1. Session history is persisted in a JSONL file.
-2. Use search_session_messages to retrieve older context on demand.
-3. Use write_session_message to store durable notes, decisions, or checkpoints.
-4. Context compaction may summarize earlier turns; recover precise details via search_session_messages.
-5. Prefer searching session history before asking the user to repeat previous details.
+ 1. Session transcript is persisted separately from operational state.
+ 2. Use memory_file to retrieve older transcript context on demand.
+ 3. Use memory_file append_note only for durable assistant notes when needed.
+ 4. Context compaction may create checkpoints; recover precise details through memory_file reads/search.
+ 5. Prefer memory_file before asking the user to repeat previous details.
 
 You are not a chatbot. You are an autonomous coding agent operating in a local codebase.`;
 
@@ -120,8 +120,8 @@ export function buildSystemPrompt(context?: SystemPromptContext): string {
     prompt +=
       `\n\nACTIVE SESSION:` +
       `\n- Session ID: ${context.sessionId}` +
-      `\n- Session file: ${context.sessionFilePath}` +
-      "\n- Older context is available through session-history tools.";
+      `\n- Transcript file: ${context.sessionFilePath}` +
+      "\n- Older context is available through memory_file.";
   }
 
   if (context?.completionCriteria && context.completionCriteria.length > 0) {

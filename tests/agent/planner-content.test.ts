@@ -27,7 +27,7 @@ describe("planner response parsing", () => {
           arguments: {
             command: "ls -la",
           },
-          name: "execute_command",
+          name: "bash",
         },
       })
     );
@@ -37,19 +37,19 @@ describe("planner response parsing", () => {
       throw new Error("Expected continue action");
     }
     expect(parsed.mode).toBe("strict_json");
-    expect(parsed.parsed.toolCall?.name).toBe("execute_command");
+    expect(parsed.parsed.toolCall?.name).toBe("bash");
     expect(parsed.parsed.planState?.goal).toBe("Implement BST");
     expect(parsed.parsed.planState?.steps[0]?.id).toBe("step-1");
   });
 
-  test("rejects execute_command continue payload when command is missing", () => {
+  test("rejects bash continue payload when command is missing", () => {
     const strictParse = parsePlannerJsonOnly(
       JSON.stringify({
         action: "continue",
         reasoning: "Run command",
         toolCall: {
           arguments: {},
-          name: "execute_command",
+          name: "bash",
         },
       })
     );
@@ -151,7 +151,7 @@ describe("planner response parsing", () => {
               arguments: {
                 command: "ls -la",
               },
-              name: "execute_command",
+              name: "bash",
             },
           }),
         };

@@ -81,7 +81,7 @@ describe("stream callbacks", () => {
       arguments: {
         command: "echo hi",
       },
-      name: "execute_command",
+      name: "bash",
     };
     const toolResult: ToolResult = {
       output: "hi",

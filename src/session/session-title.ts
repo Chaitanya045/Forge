@@ -4,7 +4,7 @@ import type { LlmClient } from "../llm/client";
 import type { SessionCatalogItem } from "../tools/session";
 
 import { buildSessionTitlePrompt, SESSION_TITLE_SYSTEM_PROMPT } from "../prompts/session-title";
-import { appendSessionMetaTitle } from "../tools/session";
+import { appendSessionMetaTitle, getSessionFilePath, readSessionMessages } from "../tools/session";
 import { logError } from "../utils/logger";
 
 const DEFAULT_TITLE_CHUNK_SIZE = 12;
@@ -292,7 +292,17 @@ export async function backfillMissingSessionTitles(input: {
   sessions: SessionCatalogItem[];
 }): Promise<SessionCatalogItem[]> {
   const chunkSize = Math.max(1, Math.trunc(input.chunkSize ?? DEFAULT_TITLE_CHUNK_SIZE));
-  const sessions = input.sessions.map((session) => ({ ...session }));
+  const sessions = await Promise.all(
+    input.sessions.map(async (session) => ({
+      ...session,
+      firstUserMessage:
+        session.firstUserMessage ??
+        (await readSessionMessages(session.sessionId))
+          .find((message) => message.role === "user")
+          ?.content,
+      sessionFilePath: session.sessionFilePath || getSessionFilePath(session.sessionId),
+    }))
+  );
   const untitledSessions = sessions.filter(
     (session) =>
       (!session.title || session.title.trim().length === 0) &&

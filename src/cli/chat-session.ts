@@ -10,9 +10,12 @@ import { findOpenPendingApproval, resolveApprovalFromUserReply } from "../agent/
 import { findOpenPendingPermission } from "../permission/pending";
 import {
   appendSessionEntries,
+  appendSessionMessage,
   normalizeSessionId,
   readSessionEntries,
-  type SessionMessageEntry,
+  readSessionCheckpoint,
+  readSessionMessages,
+  writeSessionCheckpoint,
 } from "../tools/session";
 
 export type ChatTurn = {
@@ -29,9 +32,8 @@ export type SessionState = {
   turns: ChatTurn[];
 };
 
-const MAX_CHAT_CONTEXT_TURNS = 6;
-const MAX_CHAT_CONTEXT_TOOL_MESSAGES = 12;
-const MAX_CHAT_CONTEXT_TOOL_MESSAGE_CHARS = 1_200;
+const MAX_CHAT_CONTEXT_TRANSCRIPT_MESSAGES = 2;
+const MAX_CHAT_CONTEXT_MESSAGE_CHARS = 600;
 
 function truncateForPrompt(value: string, maxChars: number): string {
   if (value.length <= maxChars) {
@@ -80,7 +82,7 @@ export function buildChatTaskWithFollowUp(
   followUpQuestion?: string,
   approvalResolutionNote?: string
 ): string {
-  const recentTurns = turns.slice(-MAX_CHAT_CONTEXT_TURNS);
+  const recentTurns = turns.slice(-1);
   if (recentTurns.length === 0 && !followUpQuestion && !approvalResolutionNote) {
     return userInput;
   }
@@ -112,21 +114,11 @@ export async function buildChatTaskWithFollowUpFromSession(input: {
   sessionId: string;
   userInput: string;
 }): Promise<string> {
-  const entries = await readSessionEntries(input.sessionId);
-  const turns = entries
-    .filter((entry) => entry.type === "run")
-    .map((entry) => ({
-      assistant: entry.assistantMessage,
-      finalState: entry.finalState,
-      steps: entry.steps,
-      user: entry.userMessage,
-    }));
-
-  const recentToolMessages: SessionMessageEntry[] = entries
-    .filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.role === "tool")
-    .slice(-MAX_CHAT_CONTEXT_TOOL_MESSAGES);
-
-  const recentTurns = turns.slice(-MAX_CHAT_CONTEXT_TURNS);
+  const [recentMessages, checkpoint] = await Promise.all([
+    readSessionMessages(input.sessionId),
+    readLatestSessionCheckpoint(input.sessionId),
+  ]);
+  const recentTranscript = recentMessages.slice(-MAX_CHAT_CONTEXT_TRANSCRIPT_MESSAGES);
   const followUpContext = input.followUpQuestion
     ? `\n\nAGENT FOLLOW-UP QUESTION:\n${input.followUpQuestion}\n\nUSER FOLLOW-UP ANSWER:\n${input.userInput}`
     : `\n\nCURRENT USER MESSAGE:\n${input.userInput}`;
@@ -134,30 +126,26 @@ export async function buildChatTaskWithFollowUpFromSession(input: {
     ? `\n\nAPPROVAL RESOLUTION CONTEXT:\n${input.approvalResolutionNote}`
     : "";
 
-  const history = recentTurns
-    .map(
-      (turn, index) =>
-        `Turn ${index + 1}\nUser: ${turn.user}\nAssistant: ${turn.assistant}\nState: ${turn.finalState}`
-    )
-    .join("\n\n");
-
-  const toolContext = recentToolMessages.length > 0
-    ? `\n\nRECENT TOOL RESULTS (DIGESTS):\n${recentToolMessages
-        .map((message, index) => {
-          const content = truncateForPrompt(message.content, MAX_CHAT_CONTEXT_TOOL_MESSAGE_CHARS);
-          return `Tool ${index + 1}:\n${content}`;
-        })
+  const transcriptContext = recentTranscript.length > 0
+    ? `\n\nRECENT TRANSCRIPT:\n${recentTranscript
+        .map(
+          (message, index) =>
+            `Message ${index + 1}\nRole: ${message.role}\nContent: ${truncateForPrompt(message.content, MAX_CHAT_CONTEXT_MESSAGE_CHARS)}`
+        )
         .join("\n\n")}`
     : "";
+  const checkpointContext = checkpoint
+    ? `\n\nLATEST CHECKPOINT:\n${truncateForPrompt(checkpoint, 1_400)}`
+    : "";
 
-  if (recentTurns.length === 0 && recentToolMessages.length === 0 && !input.followUpQuestion && !input.approvalResolutionNote) {
+  if (recentTranscript.length === 0 && !checkpoint && !input.followUpQuestion && !input.approvalResolutionNote) {
     return input.userInput;
   }
 
   return `Continue this interactive conversation using the recent context.
 
-RECENT CONVERSATION:
-${history}${toolContext}${followUpContext}${approvalContext}`;
+Use the checkpoint as the main historical memory. Use the transcript only as the most recent local exchange.
+${checkpointContext}${transcriptContext}${followUpContext}${approvalContext}`;
 }
 
 export async function loadSessionState(
@@ -291,6 +279,25 @@ export async function persistSessionTurn(
   const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
   const summary = result.message;
 
+  await appendSessionMessage(sessionId, {
+    content: userMessage,
+    role: "user",
+    timestamp: startedAtIso,
+  });
+  await appendSessionMessage(sessionId, {
+    content: result.message,
+    role: "assistant",
+    timestamp: endedAtIso,
+  });
+  await writeSessionCheckpoint({
+    finalState: result.finalState,
+    sessionId,
+    summary,
+    task,
+    timestamp: endedAtIso,
+    userMessage,
+  });
+
   await appendSessionEntries(sessionId, [
     {
       finalState: result.finalState,
@@ -314,4 +321,8 @@ export async function persistSessionTurn(
       userMessage,
     },
   ]);
+}
+
+async function readLatestSessionCheckpoint(sessionId: string): Promise<string | undefined> {
+  return await readSessionCheckpoint(sessionId);
 }

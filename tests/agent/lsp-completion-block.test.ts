@@ -96,7 +96,7 @@ describe("loop completion blocking for pending LSP bootstrap", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({

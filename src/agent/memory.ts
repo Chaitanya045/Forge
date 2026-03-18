@@ -5,17 +5,20 @@ type MessageSink = (message: LlmMessage) => Promise<void>;
 
 type MemoryOptions = {
   messageSink?: MessageSink;
+  sessionId?: string;
 };
 
 export class Memory {
   private messages: LlmMessage[] = [];
   private fileSummaries: Map<string, string> = new Map();
   private readonly messageSink?: MessageSink;
+  readonly sessionId?: string;
   private messageSinkError: Error | null = null;
   private messageSinkQueue: Promise<void> = Promise.resolve();
 
   constructor(options?: MemoryOptions) {
     this.messageSink = options?.messageSink;
+    this.sessionId = options?.sessionId;
   }
 
   addMessage(role: LlmMessage["role"], content: string): void {

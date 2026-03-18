@@ -74,7 +74,7 @@ describe("runtime script protocol enforcement", () => {
             command: "echo hello > note.txt",
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({
@@ -97,7 +97,7 @@ describe("runtime script protocol enforcement", () => {
             ].join("\n"),
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({
@@ -108,7 +108,7 @@ describe("runtime script protocol enforcement", () => {
             command: "bash .zace/runtime/scripts/write-note.sh",
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({
@@ -166,7 +166,7 @@ describe("runtime script protocol enforcement", () => {
             command: "echo hello > note.txt",
             cwd: tempDirectoryPath,
           },
-          name: "execute_command",
+          name: "bash",
         },
       }),
       JSON.stringify({

@@ -128,7 +128,7 @@ describe("read-only stagnation guard", () => {
                 arguments: {
                   command: "echo hi > src/a.ts",
                 },
-                name: "execute_command",
+                name: "bash",
               },
             }),
           };
@@ -149,7 +149,7 @@ describe("read-only stagnation guard", () => {
               arguments: {
                 command,
               },
-              name: "execute_command",
+              name: "bash",
             },
           }),
         };

@@ -90,7 +90,7 @@ describe("completion gate merging", () => {
               ].join("\n"),
               cwd: workspace,
             },
-            name: "execute_command",
+            name: "bash",
           },
         }),
         JSON.stringify({

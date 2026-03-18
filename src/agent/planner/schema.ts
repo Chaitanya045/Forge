@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { searchSessionMessagesSchema, writeSessionMessageSchema } from "../../tools/session-history";
+import { memoryFileSchema } from "../../tools/memory-file";
 import { executeCommandSchema } from "../../tools/shell";
 
 const bashPlannerToolCallSchema = z.object({
@@ -8,26 +8,14 @@ const bashPlannerToolCallSchema = z.object({
   name: z.literal("bash"),
 }).strict();
 
-const executeCommandPlannerToolCallSchema = z.object({
-  arguments: executeCommandSchema,
-  name: z.literal("execute_command"),
-}).strict();
-
-const searchSessionMessagesPlannerToolCallSchema = z.object({
-  arguments: searchSessionMessagesSchema,
-  name: z.literal("search_session_messages"),
-}).strict();
-
-const writeSessionMessagePlannerToolCallSchema = z.object({
-  arguments: writeSessionMessageSchema,
-  name: z.literal("write_session_message"),
+const memoryFilePlannerToolCallSchema = z.object({
+  arguments: memoryFileSchema,
+  name: z.literal("memory_file"),
 }).strict();
 
 export const plannerToolCallSchema = z.discriminatedUnion("name", [
   bashPlannerToolCallSchema,
-  executeCommandPlannerToolCallSchema,
-  searchSessionMessagesPlannerToolCallSchema,
-  writeSessionMessagePlannerToolCallSchema,
+  memoryFilePlannerToolCallSchema,
 ]);
 
 export const plannerPlanStepSchema = z.object({

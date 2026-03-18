@@ -24,29 +24,19 @@ describe("planner tool-call schema consistency", () => {
       reasoning: "Run shell command",
       toolCall: {
         arguments: {},
-        name: "execute_command",
+        name: "memory_file",
       },
     });
 
     expectStrictPlannerRejects({
       action: "continue",
-      reasoning: "Search session",
+      reasoning: "Search memory file",
       toolCall: {
         arguments: {
+          action: "search",
           query: "foo",
         },
-        name: "search_session_messages",
-      },
-    });
-
-    expectStrictPlannerRejects({
-      action: "continue",
-      reasoning: "Write session note",
-      toolCall: {
-        arguments: {
-          sessionId: "chat-1",
-        },
-        name: "write_session_message",
+        name: "memory_file",
       },
     });
   });
@@ -58,7 +48,7 @@ describe("planner tool-call schema consistency", () => {
     const toolCallSchema = properties?.toolCall as { oneOf?: Array<Record<string, unknown>> };
     const variants = toolCallSchema?.oneOf ?? [];
 
-    expect(variants.length).toBe(4);
+    expect(variants.length).toBe(2);
 
     const variantByName = new Map<string, Record<string, unknown>>();
     for (const variant of variants) {
@@ -75,23 +65,11 @@ describe("planner tool-call schema consistency", () => {
     };
     expect(bashArguments.required).toContain("command");
 
-    const executeVariant = variantByName.get("execute_command");
-    const executeArguments = (executeVariant?.properties as Record<string, unknown>)?.arguments as {
+    const memoryFileVariant = variantByName.get("memory_file");
+    const memoryFileArguments = (memoryFileVariant?.properties as Record<string, unknown>)?.arguments as {
       required?: string[];
     };
-    expect(executeArguments.required).toContain("command");
-
-    const searchVariant = variantByName.get("search_session_messages");
-    const searchArguments = (searchVariant?.properties as Record<string, unknown>)?.arguments as {
-      required?: string[];
-    };
-    expect(searchArguments.required).toContain("sessionId");
-
-    const writeVariant = variantByName.get("write_session_message");
-    const writeArguments = (writeVariant?.properties as Record<string, unknown>)?.arguments as {
-      required?: string[];
-    };
-    expect(writeArguments.required).toContain("sessionId");
-    expect(writeArguments.required).toContain("content");
+    expect(memoryFileArguments.required).toContain("action");
+    expect(memoryFileArguments.required).toContain("sessionId");
   });
 });

@@ -88,6 +88,8 @@ export async function analyzeToolResult(
   const toolResultExcerpt = toolResult.output.slice(0, 400);
   const brainContext = await buildBrainContextMessage({
     callKind: "executor",
+    maxImportantFiles: 4,
+    maxRetrievedSnippets: 2,
     query: [
       toolCall.name,
       JSON.stringify(toolCall.arguments),

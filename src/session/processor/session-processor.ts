@@ -5,7 +5,11 @@ import type { AgentConfig } from "../../types/config";
 import type { AbortSignalLike, ToolExecutionContext, ToolResult } from "../../types/tool";
 
 import { runAgentLoop, type AgentResult } from "../../agent/loop";
-import { appendSessionEntries } from "../../tools/session";
+import {
+  appendSessionEntries,
+  appendSessionMessage,
+  writeSessionCheckpoint,
+} from "../../tools/session";
 
 export type SessionProcessorTurnInput = {
   abortSignal?: AbortSignalLike;
@@ -52,6 +56,25 @@ export const SessionProcessor = {
     const startedAtIso = startedAt.toISOString();
     const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
     const summary = result.message;
+
+    await appendSessionMessage(input.sessionId, {
+      content: input.userMessage,
+      role: "user",
+      timestamp: startedAtIso,
+    });
+    await appendSessionMessage(input.sessionId, {
+      content: result.message,
+      role: "assistant",
+      timestamp: endedAtIso,
+    });
+    await writeSessionCheckpoint({
+      finalState: result.finalState,
+      sessionId: input.sessionId,
+      summary,
+      task: input.task,
+      timestamp: endedAtIso,
+      userMessage: input.userMessage,
+    });
 
     await appendSessionEntries(input.sessionId, [
       {

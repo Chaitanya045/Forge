@@ -6,6 +6,8 @@ import { messageV2Schema } from "../session/message-v2";
 
 const SESSION_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 const SESSIONS_DIRECTORY_PATH = ".zace/sessions";
+const SESSION_CHECKPOINT_SUFFIX = ".checkpoint.md";
+const SESSION_OPS_SUFFIX = ".ops.jsonl";
 
 export const sessionMessageRoleSchema = z.enum(["assistant", "system", "tool", "user"]);
 
@@ -206,6 +208,7 @@ export type SessionCatalogItem = {
 export type SessionCatalogMetadata = z.infer<typeof sessionCatalogMetadataSchema>;
 
 const SESSION_FILENAME_REGEX = /^([A-Za-z0-9][A-Za-z0-9_-]{0,63})\.jsonl$/u;
+const SESSION_OPS_FILENAME_REGEX = /^([A-Za-z0-9][A-Za-z0-9_-]{0,63})\.ops\.jsonl$/u;
 const RELATIVE_TIME_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 const RELATIVE_TIME_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const RELATIVE_TIME_DAY_MS = 24 * 60 * 60 * 1000;
@@ -214,6 +217,14 @@ const RELATIVE_TIME_MINUTE_MS = 60 * 1000;
 
 function sessionIdToPath(sessionId: string): string {
   return join(SESSIONS_DIRECTORY_PATH, `${sessionId}.jsonl`);
+}
+
+function sessionIdToOpsPath(sessionId: string): string {
+  return join(SESSIONS_DIRECTORY_PATH, `${sessionId}${SESSION_OPS_SUFFIX}`);
+}
+
+function sessionIdToCheckpointPath(sessionId: string): string {
+  return join(SESSIONS_DIRECTORY_PATH, `${sessionId}${SESSION_CHECKPOINT_SUFFIX}`);
 }
 
 function sessionIdToMetadataPath(sessionId: string): string {
@@ -233,6 +244,14 @@ export function normalizeSessionId(rawSessionId: string): string {
 
 export function getSessionFilePath(sessionId: string): string {
   return sessionIdToPath(normalizeSessionId(sessionId));
+}
+
+export function getSessionOpsFilePath(sessionId: string): string {
+  return sessionIdToOpsPath(normalizeSessionId(sessionId));
+}
+
+export function getSessionCheckpointFilePath(sessionId: string): string {
+  return sessionIdToCheckpointPath(normalizeSessionId(sessionId));
 }
 
 export async function readSessionCatalogMetadata(
@@ -290,8 +309,18 @@ export async function writeSessionCatalogMetadata(
 }
 
 export async function readSessionEntries(sessionId: string): Promise<SessionEntry[]> {
-  const path = sessionIdToPath(normalizeSessionId(sessionId));
+  const normalizedSessionId = normalizeSessionId(sessionId);
+  const [transcriptEntries, opsEntries] = await Promise.all([
+    readSessionEntriesFromPath(sessionIdToPath(normalizedSessionId)),
+    readSessionEntriesFromPath(sessionIdToOpsPath(normalizedSessionId)),
+  ]);
 
+  return [...transcriptEntries, ...opsEntries].sort((left, right) =>
+    getSessionEntryTimestamp(left).localeCompare(getSessionEntryTimestamp(right))
+  );
+}
+
+async function readSessionEntriesFromPath(path: string): Promise<SessionEntry[]> {
   let content: string;
   try {
     content = await readFile(path, "utf8");
@@ -338,12 +367,18 @@ export async function appendSessionEntries(
   }
 
   const normalizedSessionId = normalizeSessionId(sessionId);
-  const path = sessionIdToPath(normalizedSessionId);
+  const transcriptPath = sessionIdToPath(normalizedSessionId);
+  const transcriptEntries = entries.filter(isTranscriptSessionEntry);
+  const opsEntries = entries.filter((entry) => !isTranscriptSessionEntry(entry));
 
-  await mkdir(dirname(path), { recursive: true });
+  await Promise.all([
+    appendSessionEntriesToPath(transcriptPath, transcriptEntries),
+    appendSessionEntriesToPath(sessionIdToOpsPath(normalizedSessionId), opsEntries),
+  ]);
 
-  const payload = entries.map((entry) => JSON.stringify(entry)).join("\n");
-  await appendFile(path, `${payload}\n`, "utf8");
+  if (opsEntries.length > 0 && transcriptEntries.length === 0) {
+    await ensureFileExists(transcriptPath);
+  }
 }
 
 export async function appendSessionMessage(
@@ -481,6 +516,63 @@ export async function appendSessionPermissionRule(
   ]);
 }
 
+export async function readSessionCheckpoint(sessionId: string): Promise<string | undefined> {
+  const path = getSessionCheckpointFilePath(sessionId);
+
+  try {
+    const content = await readFile(path, "utf8");
+    const normalized = content.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+export async function writeSessionCheckpoint(input: {
+  finalState: string;
+  sessionId: string;
+  summary: string;
+  task: string;
+  timestamp?: string;
+  userMessage: string;
+}): Promise<string> {
+  const path = getSessionCheckpointFilePath(input.sessionId);
+  const timestamp = input.timestamp ?? new Date().toISOString();
+  const previous = await readSessionCheckpoint(input.sessionId);
+  const previousExcerpt = previous
+    ? previous.slice(0, 1600).trim()
+    : undefined;
+  const content = [
+    "# Session Checkpoint",
+    "",
+    `Timestamp: ${timestamp}`,
+    `Task: ${input.task}`,
+    `Final state: ${input.finalState}`,
+    "",
+    "## Latest User Message",
+    input.userMessage.trim() || "(empty)",
+    "",
+    "## Latest Outcome",
+    input.summary.trim() || "(empty)",
+    ...(previousExcerpt
+      ? [
+          "",
+          "## Previous Checkpoint Context",
+          previousExcerpt,
+        ]
+      : []),
+    "",
+  ].join("\n");
+
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${content}\n`, "utf8");
+  return path;
+}
+
 function resolvePendingActionId(action: SessionPendingActionEntry): string {
   const pendingId = action.context.pendingId;
   if (typeof pendingId === "string" && pendingId.length > 0) {
@@ -523,8 +615,11 @@ export function findLatestOpenPendingAction(
 }
 
 export async function readSessionMessages(sessionId: string): Promise<SessionMessageEntry[]> {
-  const entries = await readSessionEntries(sessionId);
-  return entries.filter((entry): entry is SessionMessageEntry => entry.type === "message");
+  const entries = await readSessionEntriesFromPath(getSessionFilePath(sessionId));
+  return entries.filter(
+    (entry): entry is SessionMessageEntry =>
+      entry.type === "message" && (entry.role === "assistant" || entry.role === "user")
+  );
 }
 
 export function formatRelativeSessionTime(lastInteractedAtIso: string, now: Date = new Date()): string {
@@ -566,24 +661,25 @@ export async function listSessionCatalog(input?: { now?: Date }): Promise<Sessio
   const now = input?.now ?? new Date();
   const catalog: Array<SessionCatalogItem & { lastInteractedAtMs: number }> = [];
 
+  const candidateSessionIds = new Set<string>();
   for (const filename of filenames) {
-    const matched = filename.match(SESSION_FILENAME_REGEX);
-    if (!matched) {
-      continue;
+    const transcriptMatch = filename.match(SESSION_FILENAME_REGEX);
+    const opsMatch = filename.match(SESSION_OPS_FILENAME_REGEX);
+    const sessionId = transcriptMatch?.[1] ?? opsMatch?.[1];
+    if (sessionId) {
+      candidateSessionIds.add(sessionId);
     }
+  }
 
-    const sessionId = matched[1];
-    if (!sessionId) {
-      continue;
-    }
-    const sessionFilePath = join(SESSIONS_DIRECTORY_PATH, filename);
-    let fileStat;
-    try {
-      fileStat = await stat(sessionFilePath);
-    } catch {
-      continue;
-    }
-    if (!fileStat.isFile()) {
+  for (const sessionId of candidateSessionIds) {
+    const sessionFilePath = getSessionFilePath(sessionId);
+    const sessionOpsFilePath = getSessionOpsFilePath(sessionId);
+    const [transcriptStat, opsStat] = await Promise.all([
+      stat(sessionFilePath).catch(() => undefined),
+      stat(sessionOpsFilePath).catch(() => undefined),
+    ]);
+    const mtimeMs = Math.max(transcriptStat?.mtimeMs ?? 0, opsStat?.mtimeMs ?? 0);
+    if (mtimeMs <= 0) {
       continue;
     }
 
@@ -594,11 +690,12 @@ export async function listSessionCatalog(input?: { now?: Date }): Promise<Sessio
       metadata = undefined;
     }
 
-    const lastInteractedAt = fileStat.mtime.toISOString();
+    const lastInteractedAt = new Date(mtimeMs).toISOString();
     catalog.push({
+      firstUserMessage: undefined,
       lastInteractedAgo: formatRelativeSessionTime(lastInteractedAt, now),
       lastInteractedAt,
-      lastInteractedAtMs: fileStat.mtimeMs,
+      lastInteractedAtMs: mtimeMs,
       sessionFilePath,
       sessionId,
       title: metadata?.title,
@@ -607,4 +704,45 @@ export async function listSessionCatalog(input?: { now?: Date }): Promise<Sessio
 
   catalog.sort((left, right) => right.lastInteractedAtMs - left.lastInteractedAtMs);
   return catalog.map(({ lastInteractedAtMs: _lastInteractedAtMs, ...item }) => item);
+}
+
+function isTranscriptSessionEntry(entry: SessionEntry): boolean {
+  return entry.type === "message" && (entry.role === "assistant" || entry.role === "user");
+}
+
+function getSessionEntryTimestamp(entry: SessionEntry): string {
+  if ("timestamp" in entry && typeof entry.timestamp === "string") {
+    return entry.timestamp;
+  }
+
+  if (entry.type === "run") {
+    return entry.endedAt;
+  }
+
+  return "";
+}
+
+async function appendSessionEntriesToPath(path: string, entries: SessionEntry[]): Promise<void> {
+  if (entries.length === 0) {
+    return;
+  }
+
+  await mkdir(dirname(path), { recursive: true });
+
+  const payload = entries.map((entry) => JSON.stringify(entry)).join("\n");
+  await appendFile(path, `${payload}\n`, "utf8");
+}
+
+async function ensureFileExists(path: string): Promise<void> {
+  try {
+    await stat(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "", "utf8");
+      return;
+    }
+
+    throw error;
+  }
 }

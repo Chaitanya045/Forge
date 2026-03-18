@@ -165,6 +165,10 @@ export async function runStartupPhase<TResult>(input: {
   }
 
   const docsPolicy = resolveProjectDocsPolicy(input.task, discoveredDocCandidates);
+  const looksLikeChatContinuation =
+    input.task.includes("Continue this interactive conversation using the recent context.") ||
+    input.task.includes("LATEST CHECKPOINT:") ||
+    input.task.includes("RECENT TRANSCRIPT:");
   if (input.config.docContextMode === "off") {
     input.memory.addMessage(
       "assistant",
@@ -193,6 +197,23 @@ export async function runStartupPhase<TResult>(input: {
       payload: {
         mode: input.config.docContextMode,
         reason: "user_disabled_docs",
+      },
+      phase: "planning",
+      runId: input.runId,
+      sessionId: input.sessionId,
+      step: 0,
+    });
+  } else if (looksLikeChatContinuation) {
+    input.memory.addMessage(
+      "assistant",
+      "Skipping project documentation preload for chat follow-up because recent session context is already available."
+    );
+    await appendRunEvent({
+      event: "docs_context_skipped",
+      observer: input.observer,
+      payload: {
+        mode: input.config.docContextMode,
+        reason: "chat_followup_budget",
       },
       phase: "planning",
       runId: input.runId,

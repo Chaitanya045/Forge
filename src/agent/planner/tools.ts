@@ -44,18 +44,14 @@ function buildToolCallJsonSchema(toolName: string): Record<string, unknown> {
 
 export const PLANNER_TOOL_NAMES = [
   "bash",
-  "execute_command",
-  "search_session_messages",
-  "write_session_message",
+  "memory_file",
 ] as const;
 
 export type PlannerToolName = (typeof PLANNER_TOOL_NAMES)[number];
 
 export const PLANNER_TOOL_CALL_JSON_SCHEMAS = {
   bash: buildToolCallJsonSchema("bash"),
-  execute_command: buildToolCallJsonSchema("execute_command"),
-  search_session_messages: buildToolCallJsonSchema("search_session_messages"),
-  write_session_message: buildToolCallJsonSchema("write_session_message"),
+  memory_file: buildToolCallJsonSchema("memory_file"),
 } as const;
 
 export const PLANNER_SESSION_MESSAGE_ROLE_JSON_SCHEMA = SESSION_MESSAGE_ROLE_JSON_SCHEMA;

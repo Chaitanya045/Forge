@@ -31,7 +31,7 @@ describe("planner structured output", () => {
               arguments: {
                 command: "ls -la",
               },
-              name: "execute_command",
+              name: "bash",
             },
           }),
         };
@@ -68,7 +68,7 @@ describe("planner structured output", () => {
               arguments: {
                 command: "ls",
               },
-              name: "execute_command",
+              name: "bash",
             },
           }),
         };

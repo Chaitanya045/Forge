@@ -107,10 +107,8 @@ export const PLANNER_RESPONSE_JSON_SCHEMA: Record<string, unknown> = {
     },
     toolCall: {
       oneOf: [
-        PLANNER_TOOL_CALL_JSON_SCHEMAS.execute_command,
         PLANNER_TOOL_CALL_JSON_SCHEMAS.bash,
-        PLANNER_TOOL_CALL_JSON_SCHEMAS.search_session_messages,
-        PLANNER_TOOL_CALL_JSON_SCHEMAS.write_session_message,
+        PLANNER_TOOL_CALL_JSON_SCHEMAS.memory_file,
       ],
     },
     userMessage: {

@@ -75,7 +75,7 @@ describe("completion freshness in strict mode", () => {
               ].join("\n"),
               cwd: tempDirectoryPath,
             },
-            name: "execute_command",
+            name: "bash",
           },
         }),
         JSON.stringify({

@@ -9,7 +9,7 @@ import {
 
 describe("loop stability", () => {
   test("pre-exec doom loop blocks repeated identical call at threshold", () => {
-    const repeatedSignature = buildToolCallSignature("execute_command", {
+    const repeatedSignature = buildToolCallSignature("bash", {
       command: "echo hi",
       cwd: "/repo",
     });
@@ -26,11 +26,11 @@ describe("loop stability", () => {
 
   test("pre-exec doom loop treats absolute and relative inspect commands as identical", () => {
     const repositoryRoot = resolve("/tmp/zace-loop-root");
-    const relativeSignature = buildToolCallSignature("execute_command", {
+    const relativeSignature = buildToolCallSignature("bash", {
       command: "ls -la src/",
       cwd: repositoryRoot,
     });
-    const absoluteSignature = buildToolCallSignature("execute_command", {
+    const absoluteSignature = buildToolCallSignature("bash", {
       command: `ls -la ${repositoryRoot}/src`,
       cwd: repositoryRoot,
     });
@@ -53,14 +53,14 @@ describe("loop stability", () => {
           reasoning: "step one",
           state: "executing",
           step: 1,
-          toolCall: { arguments: { command: "echo hi" }, name: "execute_command" },
+          toolCall: { arguments: { command: "echo hi" }, name: "bash" },
           toolResult: { artifacts: { progressSignal: "files_changed" }, output: "updated", success: true },
         },
         {
           reasoning: "step two",
           state: "executing",
           step: 2,
-          toolCall: { arguments: { command: "echo hi" }, name: "execute_command" },
+          toolCall: { arguments: { command: "echo hi" }, name: "bash" },
           toolResult: { artifacts: { progressSignal: "success_without_changes" }, output: "more output", success: true },
         },
       ],

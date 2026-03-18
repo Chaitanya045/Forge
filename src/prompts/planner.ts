@@ -1,7 +1,7 @@
 import type { AgentContext } from "../types/agent";
 
 import { SCRIPT_REGISTRY_PATH } from "../agent/scripts";
-import { getToolDescriptions } from "../tools";
+import { getModelVisibleToolDescriptions } from "../tools";
 
 export function buildPlannerPrompt(
   context: AgentContext,
@@ -53,7 +53,7 @@ COMPLETION GATES:
 ${completionCriteriaText}
 
 AVAILABLE TOOLS:
-${getToolDescriptions()}
+${getModelVisibleToolDescriptions()}
 
 INSTRUCTIONS:
 1. Analyze the task and current state
@@ -87,11 +87,11 @@ INSTRUCTIONS:
    }
    Allowed keys per server: id, command, extensions, rootMarkers, optional env, optional initialization.
    Never use fields like filePatterns/rootIndicators and never use top-level language-name objects.
-10. For bash/execute_command, arguments.command is mandatory and must be a non-empty string.
-11. For bash/execute_command, you may set:
-   maxRetries (bounded retry attempts), retryMaxDelayMs (max delay cap), outputLimitChars (stdout/stderr truncation limit).
-12. When older conversation context is needed, use search_session_messages before asking the user to repeat details.
-13. Use write_session_message to persist durable notes/checkpoints that may be useful after compaction.
+10. For bash, arguments.command is mandatory and must be a non-empty string.
+11. For bash, you may set:
+    maxRetries (bounded retry attempts), retryMaxDelayMs (max delay cap), outputLimitChars (stdout/stderr truncation limit).
+12. When older conversation context is needed, use memory_file before asking the user to repeat details.
+13. Use memory_file append_note only for durable assistant notes that should survive prompt trimming.
 14. Before any write/create/edit command, inspect the repository with read-only commands to infer project language and layout.
 15. Align file extensions with inferred repo stack unless the user explicitly requests another language.
 16. If user clarification is required, choose action "ask_user" with one clear question.
@@ -127,7 +127,7 @@ INSTRUCTIONS:
 26b. For simple informational questions that can be answered without tools (e.g. "who are you", "what did we do so far", "what is this repo"), choose "ask_user".
     - Put the direct answer in userMessage, then ask one short follow-up question about what to do next.
     - Do not choose "continue" just to run a tool that prints text (no echo/printf/"bash" for chat-only answers).
-27. If context was compacted or details may be old, prefer search_session_messages before asking the user to repeat information.
+27. If context was compacted or details may be old, prefer memory_file before asking the user to repeat information.
 28. Before repeating the same write/create/edit command, verify objective state with a read command (file exists, content, or git diff).
 29. If prior tool output/logs indicate the objective is already achieved, avoid repeating writes and move to validation/completion.
 30. If conversation context contains approval resolution text, interpret decisions exactly:
@@ -136,7 +136,7 @@ INSTRUCTIONS:
 ${lspCompletionInstruction}
 
 ADDITIONAL SAFETY:
- - Do not combine file edits and validation in a single bash/execute_command (separate write step and validate step).
+  - Do not combine file edits and validation in a single bash call (separate write step and validate step).
 - After a write/edit command fails, do not rerun the identical edit command; inspect current file state and change approach.
 
 RESPONSE FORMAT:

@@ -110,7 +110,7 @@ describe("transient-only retry policy", () => {
                 arguments: {
                   command: "sed -e 's/a/b/' missing.txt",
                 },
-                name: "execute_command",
+                name: "bash",
               },
             }),
           };
@@ -201,7 +201,7 @@ describe("transient-only retry policy", () => {
                 arguments: {
                   command: "sleep 10",
                 },
-                name: "execute_command",
+                name: "bash",
               },
             }),
           };
