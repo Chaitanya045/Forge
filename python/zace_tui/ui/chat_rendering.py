@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, TypedDict
+from typing import NotRequired, Optional, TypedDict
 
 from rich.align import Align
 from rich.padding import Padding
@@ -8,10 +8,14 @@ from rich.text import Text
 
 
 class ChatItem(TypedDict):
-    final_state: str | None
-    kind: str | None
+    activity_id: NotRequired[str | None]
+    final_state: NotRequired[str | None]
+    kind: NotRequired[str | None]
     role: str
+    status: NotRequired[str | None]
+    subtitle: NotRequired[str | None]
     text: str
+    tool_name: NotRequired[str | None]
 
 
 def build_chat_line(
@@ -20,6 +24,9 @@ def build_chat_line(
     final_state: str | None,
     edge_padding: int,
     kind: str | None = None,
+    status: str | None = None,
+    subtitle: str | None = None,
+    tool_name: str | None = None,
 ) -> Align:
     line = Text()
     alignment = "left"
@@ -30,6 +37,14 @@ def build_chat_line(
     if kind == "reasoning":
         label_style = "#9AA0A6"
         label = "thinking"
+    elif kind == "tool_activity":
+        label = "tool"
+        if status == "running":
+            label_style = "#F4B942"
+        elif status == "error":
+            label_style = "#FF6B6B"
+        else:
+            label_style = "#58C4A3"
     elif role == "user":
         alignment = "right"
         label_style = "#4EA5FF"
@@ -42,6 +57,12 @@ def build_chat_line(
     line.append(label, style=label_style)
     line.append(": ")
     line.append(text)
+    if kind == "tool_activity" and subtitle:
+        line.append(" - ", style="#6A737D")
+        line.append(subtitle, style="#9AA0A6")
+    elif kind == "tool_activity" and tool_name:
+        line.append(" - ", style="#6A737D")
+        line.append(tool_name, style="#9AA0A6")
     if final_state and role != "assistant":
         line.append(f" ({final_state})", style="#88D498")
 
@@ -69,7 +90,11 @@ def apply_stream_chat_chunk(
                 "final_state": None,
                 "kind": kind,
                 "role": role,
+                "status": None,
+                "subtitle": None,
                 "text": text,
+                "tool_name": None,
+                "activity_id": None,
             }
         )
         stream_index_by_id[stream_id] = len(chat_items) - 1
@@ -82,7 +107,11 @@ def apply_stream_chat_chunk(
                 "final_state": final_state,
                 "kind": kind,
                 "role": role,
+                "status": None,
+                "subtitle": None,
                 "text": text,
+                "tool_name": None,
+                "activity_id": None,
             }
         )
         stream_index_by_id[stream_id] = len(chat_items) - 1

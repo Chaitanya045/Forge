@@ -46,6 +46,21 @@ describe("ui bridge protocol", () => {
     expect(parsed.success).toBeTrue();
   });
 
+  test("accepts tool activity events", () => {
+    const parsed = bridgeEventSchema.safeParse({
+      activityId: "1:1:bash",
+      attempt: 1,
+      status: "running",
+      step: 1,
+      text: "Reading files",
+      timestamp: Date.now(),
+      toolName: "bash",
+      type: "tool_activity",
+    });
+
+    expect(parsed.success).toBeTrue();
+  });
+
   test("accepts success and error bridge responses", () => {
     const success = bridgeResponseSchema.safeParse({
       id: "3",

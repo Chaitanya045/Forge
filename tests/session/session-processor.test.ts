@@ -6,7 +6,12 @@ import type { LlmClient } from "../../src/llm/client";
 import type { AgentConfig } from "../../src/types/config";
 
 import { SessionProcessor } from "../../src/session/processor/session-processor";
-import { readSessionEntries } from "../../src/tools/session";
+import {
+  getSessionCheckpointFilePath,
+  getSessionFilePath,
+  getSessionOpsFilePath,
+  readSessionEntries,
+} from "../../src/tools/session";
 
 function createTestConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   return {
@@ -64,6 +69,9 @@ describe("session processor terminal records", () => {
   test("persists summary and run entries when interrupted during planner call", async () => {
     const sessionId = "chat-session-processor-interrupted";
     await mkdir(".zace/sessions", { recursive: true });
+    await rm(getSessionFilePath(sessionId), { force: true });
+    await rm(getSessionOpsFilePath(sessionId), { force: true });
+    await rm(getSessionCheckpointFilePath(sessionId), { force: true });
 
     const abortController = new globalThis.AbortController();
     const llmClient = {
@@ -126,12 +134,17 @@ describe("session processor terminal records", () => {
     } finally {
       clearTimeout(abortTimer);
       await rm(join(".zace/sessions", `${sessionId}.jsonl`), { force: true });
+      await rm(getSessionOpsFilePath(sessionId), { force: true });
+      await rm(getSessionCheckpointFilePath(sessionId), { force: true });
     }
   });
 
   test("persists summary and run entries when llm call errors", async () => {
     const sessionId = "chat-session-processor-error";
     await mkdir(".zace/sessions", { recursive: true });
+    await rm(getSessionFilePath(sessionId), { force: true });
+    await rm(getSessionOpsFilePath(sessionId), { force: true });
+    await rm(getSessionCheckpointFilePath(sessionId), { force: true });
 
     const llmClient = {
       chat: async () => {
@@ -164,6 +177,8 @@ describe("session processor terminal records", () => {
       }
     } finally {
       await rm(join(".zace/sessions", `${sessionId}.jsonl`), { force: true });
+      await rm(getSessionOpsFilePath(sessionId), { force: true });
+      await rm(getSessionCheckpointFilePath(sessionId), { force: true });
     }
   });
 });

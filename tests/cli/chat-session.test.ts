@@ -5,7 +5,6 @@ import type { AgentResult } from "../../src/agent/loop";
 
 import { createAutoSessionId, persistSessionTurn, resolveSessionId } from "../../src/cli/chat-session";
 import {
-  appendSessionMessage,
   getSessionFilePath,
   getSessionOpsFilePath,
   readSessionEntries,

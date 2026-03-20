@@ -124,6 +124,82 @@ describe("BridgeController command orchestration", () => {
     }
   });
 
+  test("runtime submit emits friendly tool activity events", async () => {
+    const sessionId = `bridge-tool-activity-${Math.random().toString(36).slice(2, 10)}`;
+    const sessionPath = getSessionFilePath(sessionId);
+    const sessionOpsPath = getSessionOpsFilePath(sessionId);
+    const events: BridgeEvent[] = [];
+    let callCount = 0;
+
+    const controller = new BridgeController({
+      client: {
+        chat: async () => {
+          callCount += 1;
+          if (callCount === 1) {
+            return {
+              content: JSON.stringify({
+                action: "continue",
+                reasoning: "Inspect the working directory first.",
+                toolCall: {
+                  arguments: {
+                    command: "pwd",
+                  },
+                  name: "bash",
+                },
+              }),
+            };
+          }
+
+          if (callCount === 2) {
+            return {
+              content: JSON.stringify({
+                action: "complete",
+                gates: "none",
+                reasoning: "Done.",
+                userMessage: "Finished checking saved context.",
+              }),
+            };
+          }
+
+          return {
+            content: JSON.stringify({
+              titles: [
+                {
+                  sessionId,
+                  title: "Tool activity test",
+                },
+              ],
+            }),
+          };
+        },
+      } as unknown as LlmClient,
+      config: createRuntimeControllerConfig(),
+      emitEvent: (event) => {
+        events.push(event);
+      },
+      sessionFilePath: sessionPath,
+      sessionId,
+    });
+
+    try {
+      await controller.submit({
+        kind: "message",
+        text: "continue",
+      });
+
+      const toolActivities = events.filter(
+        (event): event is Extract<BridgeEvent, { type: "tool_activity" }> =>
+          event.type === "tool_activity"
+      );
+      expect(toolActivities.length).toBeGreaterThanOrEqual(2);
+      expect(toolActivities[0]?.text).toBe("Inspecting project files");
+      expect(toolActivities.at(-1)?.text).toBe("Inspected project files");
+    } finally {
+      await unlink(sessionPath).catch(() => undefined);
+      await unlink(sessionOpsPath).catch(() => undefined);
+    }
+  });
+
   test("interrupt returns not_running when no turn is active", async () => {
     const controller = new BridgeController({
       client: {} as LlmClient,

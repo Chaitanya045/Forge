@@ -27,13 +27,17 @@ class BridgeState(ZaceUiModel):
 
 
 class ChatMessageEvent(ZaceUiModel):
+    activityId: str | None = None
     chunk: Literal["delta", "end", "start"] | None = None
     finalState: str | None = None
-    kind: Literal["message", "reasoning"] | None = None
+    kind: Literal["message", "reasoning", "tool_activity"] | None = None
     role: Literal["assistant", "system", "user"]
+    status: Literal["completed", "error", "running"] | None = None
     streamId: str | None = None
+    subtitle: str | None = None
     text: str
     timestamp: int
+    toolName: str | None = None
     type: Literal["chat_message"] = "chat_message"
 
 
@@ -49,6 +53,18 @@ class ToolStatusEvent(ZaceUiModel):
     success: bool | None = None
     toolName: str
     type: Literal["tool_status"] = "tool_status"
+
+
+class ToolActivityEvent(ZaceUiModel):
+    activityId: str = Field(min_length=1)
+    attempt: int
+    status: Literal["completed", "error", "running"]
+    step: int
+    subtitle: str | None = None
+    text: str
+    timestamp: int
+    toolName: str
+    type: Literal["tool_activity"] = "tool_activity"
 
 
 class ApprovalPromptEvent(ZaceUiModel):
@@ -78,6 +94,7 @@ BridgeEvent = Union[
     ErrorEvent,
     PermissionPromptEvent,
     StateUpdateEvent,
+    ToolActivityEvent,
     ToolStatusEvent,
 ]
 

@@ -77,6 +77,20 @@ const sessionRunEventEntrySchema = z.object({
   type: z.literal("run_event"),
 });
 
+const sessionToolActivityStatusSchema = z.enum(["completed", "error", "running"]);
+
+const sessionToolActivityEntrySchema = z.object({
+  activityId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  status: sessionToolActivityStatusSchema,
+  step: z.number().int().positive(),
+  subtitle: z.string().optional(),
+  text: z.string().min(1),
+  timestamp: z.string(),
+  toolName: z.string().min(1),
+  type: z.literal("tool_activity"),
+});
+
 const sessionPendingActionKindSchema = z.enum(["approval", "loop_guard", "permission"]);
 const sessionPendingActionStatusSchema = z.enum(["open", "resolved"]);
 
@@ -122,6 +136,7 @@ export const sessionEntrySchema = z.discriminatedUnion("type", [
   sessionPendingActionEntrySchema,
   sessionPermissionRuleEntrySchema,
   sessionRunEventEntrySchema,
+  sessionToolActivityEntrySchema,
   sessionSummaryEntrySchema,
   sessionRunEntrySchema,
 ]);
@@ -142,6 +157,8 @@ export type SessionPendingActionKind = z.infer<typeof sessionPendingActionKindSc
 export type SessionPendingActionStatus = z.infer<typeof sessionPendingActionStatusSchema>;
 export type SessionRunEventEntry = Extract<SessionEntry, { type: "run_event" }>;
 export type SessionRunEventPhase = z.infer<typeof sessionRunEventPhaseSchema>;
+export type SessionToolActivityEntry = Extract<SessionEntry, { type: "tool_activity" }>;
+export type SessionToolActivityStatus = z.infer<typeof sessionToolActivityStatusSchema>;
 export type SessionMessageWrite = {
   content: string;
   role: SessionMessageRole;
@@ -194,6 +211,17 @@ export type SessionRunEventWrite = {
   runId: string;
   step: number;
   timestamp?: string;
+};
+
+export type SessionToolActivityWrite = {
+  activityId: string;
+  attempt: number;
+  status: SessionToolActivityStatus;
+  step: number;
+  subtitle?: string;
+  text: string;
+  timestamp?: string;
+  toolName: string;
 };
 
 export type SessionCatalogItem = {
@@ -464,6 +492,27 @@ export async function appendSessionRunEvent(
   ]);
 }
 
+export async function appendSessionToolActivity(
+  sessionId: string,
+  activity: SessionToolActivityWrite
+): Promise<void> {
+  const timestamp = activity.timestamp ?? new Date().toISOString();
+
+  await appendSessionEntries(sessionId, [
+    {
+      activityId: activity.activityId,
+      attempt: activity.attempt,
+      status: activity.status,
+      step: activity.step,
+      subtitle: activity.subtitle,
+      text: activity.text,
+      timestamp,
+      toolName: activity.toolName,
+      type: "tool_activity",
+    },
+  ]);
+}
+
 export async function appendSessionPendingAction(
   sessionId: string,
   pendingAction: SessionPendingActionWrite
@@ -532,6 +581,16 @@ export async function readSessionCheckpoint(sessionId: string): Promise<string |
   }
 }
 
+export async function writeSessionCheckpointContent(
+  sessionId: string,
+  content: string
+): Promise<string> {
+  const path = getSessionCheckpointFilePath(sessionId);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${content.trim()}\n`, "utf8");
+  return path;
+}
+
 export async function writeSessionCheckpoint(input: {
   finalState: string;
   sessionId: string;
@@ -540,7 +599,6 @@ export async function writeSessionCheckpoint(input: {
   timestamp?: string;
   userMessage: string;
 }): Promise<string> {
-  const path = getSessionCheckpointFilePath(input.sessionId);
   const timestamp = input.timestamp ?? new Date().toISOString();
   const previous = await readSessionCheckpoint(input.sessionId);
   const previousExcerpt = previous
@@ -568,9 +626,7 @@ export async function writeSessionCheckpoint(input: {
     "",
   ].join("\n");
 
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${content}\n`, "utf8");
-  return path;
+  return await writeSessionCheckpointContent(input.sessionId, content);
 }
 
 function resolvePendingActionId(action: SessionPendingActionEntry): string {

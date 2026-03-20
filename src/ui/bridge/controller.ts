@@ -34,8 +34,10 @@ import { findOpenPendingPermission, resolvePendingPermissionFromUserMessage } fr
 import { storePermissionRule } from "../../permission/store";
 import { SessionProcessor } from "../../session/processor/session-processor";
 import { scheduleSessionTitleFromFirstUserMessage } from "../../session/session-title";
+import { describeToolActivity } from "../../session/tool-activity";
 import {
   appendSessionApprovalRule,
+  appendSessionToolActivity,
   getSessionFilePath,
   getSessionOpsFilePath,
   listSessionCatalog,
@@ -115,6 +117,7 @@ export class BridgeController {
   private queuedResolutionNotes: string[] = [];
   private assistantStreamCounter = 0;
   private streamQueue: Promise<void> = Promise.resolve();
+  private readonly toolActivityInputs = new Map<string, Record<string, unknown>>();
 
   constructor(input: BridgeControllerInput) {
     this.client = input.client;
@@ -200,6 +203,7 @@ export class BridgeController {
     this.queuedResolutionNotes = [];
     this.assistantStreamCounter = 0;
     this.streamQueue = Promise.resolve();
+    this.toolActivityInputs.clear();
   }
 
   private enqueueStream(task: () => Promise<void>): Promise<void> {
@@ -246,7 +250,7 @@ export class BridgeController {
     }
 
     return {
-      messages: this.buildInitialChatMessages(this.turns),
+      messages: this.buildInitialChatMessages(this.turns, sessionState.toolActivities),
       state: this.state,
     };
   }
@@ -364,12 +368,15 @@ export class BridgeController {
     }
   }
 
-  private buildInitialChatMessages(turns: ChatTurn[]): InitResult["messages"] {
+  private buildInitialChatMessages(
+    turns: ChatTurn[],
+    toolActivities: InitResult["messages"]
+  ): InitResult["messages"] {
     const start = Date.now();
-    const messages: InitResult["messages"] = [];
+    const messages: InitResult["messages"] = [...toolActivities];
 
     turns.forEach((turn, index) => {
-      const baseTime = start + index;
+      const baseTime = turn.userTimestamp ?? start + index * 2;
       messages.push({
         role: "user",
         text: turn.user,
@@ -379,11 +386,11 @@ export class BridgeController {
         finalState: turn.finalState,
         role: "assistant",
         text: turn.assistant,
-        timestamp: baseTime,
+        timestamp: turn.assistantTimestamp ?? baseTime + 1,
       });
     });
 
-    return messages;
+    return messages.sort((left, right) => left.timestamp - right.timestamp);
   }
 
   private parseCompatibilityCommand(message: string): "exit" | "help" | "reset" | "status" | null {
@@ -426,6 +433,43 @@ export class BridgeController {
       timestamp: Date.now(),
       type: "chat_message",
     });
+  }
+
+  private buildToolActivityId(step: number, attempt: number, toolName: string): string {
+    return `${String(step)}:${String(attempt)}:${toolName}`;
+  }
+
+  private emitToolActivity(input: {
+    activityId: string;
+    attempt: number;
+    status: "completed" | "error" | "running";
+    step: number;
+    subtitle?: string;
+    text: string;
+    toolName: string;
+  }): void {
+    const timestamp = Date.now();
+    this.emitEvent({
+      activityId: input.activityId,
+      attempt: input.attempt,
+      status: input.status,
+      step: input.step,
+      subtitle: input.subtitle,
+      text: input.text,
+      timestamp,
+      toolName: input.toolName,
+      type: "tool_activity",
+    });
+    void appendSessionToolActivity(this.sessionId, {
+      activityId: input.activityId,
+      attempt: input.attempt,
+      status: input.status,
+      step: input.step,
+      subtitle: input.subtitle,
+      text: input.text,
+      timestamp: new Date(timestamp).toISOString(),
+      toolName: input.toolName,
+    }).catch(() => undefined);
   }
 
   private async emitAssistantMessage(text: string, finalState?: string): Promise<void> {
@@ -716,8 +760,24 @@ export class BridgeController {
         });
       },
       onToolCall: (event) => {
+        const activityId = this.buildToolActivityId(event.step, event.attempt, event.name);
+        this.toolActivityInputs.set(activityId, event.arguments);
+        const presentation = describeToolActivity({
+          argumentsObject: event.arguments,
+          status: "running",
+          toolName: event.name,
+        });
         this.updateState({
-          activeToolName: event.name,
+          activeToolName: presentation.title,
+        });
+        this.emitToolActivity({
+          activityId,
+          attempt: event.attempt,
+          status: "running",
+          step: event.step,
+          subtitle: presentation.subtitle,
+          text: presentation.title,
+          toolName: event.name,
         });
         this.emitEvent({
           attempt: event.attempt,
@@ -728,8 +788,24 @@ export class BridgeController {
         });
       },
       onToolResult: (event) => {
+        const activityId = this.buildToolActivityId(event.step, event.attempt, event.name);
+        const presentation = describeToolActivity({
+          argumentsObject: this.toolActivityInputs.get(activityId),
+          status: event.success ? "completed" : "error",
+          toolName: event.name,
+        });
+        this.toolActivityInputs.delete(activityId);
         this.updateState({
           activeToolName: undefined,
+        });
+        this.emitToolActivity({
+          activityId,
+          attempt: event.attempt,
+          status: event.success ? "completed" : "error",
+          step: event.step,
+          subtitle: presentation.subtitle,
+          text: presentation.title,
+          toolName: event.name,
         });
         this.emitEvent({
           attempt: event.attempt,

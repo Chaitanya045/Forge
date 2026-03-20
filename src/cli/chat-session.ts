@@ -5,6 +5,7 @@ import type { AgentResult } from "../agent/loop";
 import type { LlmClient } from "../llm/client";
 import type { OpenPendingPermission } from "../permission/pending";
 import type { AgentConfig } from "../types/config";
+import type { InitialChatMessage } from "../ui/bridge/protocol";
 
 import { findOpenPendingApproval, resolveApprovalFromUserReply } from "../agent/approval";
 import { findOpenPendingPermission } from "../permission/pending";
@@ -15,13 +16,16 @@ import {
   readSessionEntries,
   readSessionCheckpoint,
   readSessionMessages,
+  type SessionToolActivityEntry,
   writeSessionCheckpoint,
 } from "../tools/session";
 
 export type ChatTurn = {
   assistant: string;
+  assistantTimestamp?: number;
   finalState: string;
   steps: number;
+  userTimestamp?: number;
   user: string;
 };
 
@@ -29,6 +33,7 @@ export type SessionState = {
   pendingApproval?: OpenPendingApproval;
   pendingPermission?: OpenPendingPermission;
   pendingFollowUpQuestion?: string;
+  toolActivities: InitialChatMessage[];
   turns: ChatTurn[];
 };
 
@@ -216,9 +221,11 @@ export async function loadSessionState(
     .filter((entry) => entry.type === "run")
     .map((entry) => ({
       assistant: entry.assistantMessage,
+      assistantTimestamp: Date.parse(entry.endedAt) || undefined,
       finalState: entry.finalState,
       steps: entry.steps,
       user: entry.userMessage,
+      userTimestamp: Date.parse(entry.startedAt) || undefined,
     }));
   const pendingApproval = approvalMemoryEnabled
     ? await findOpenPendingApproval({
@@ -235,6 +242,23 @@ export async function loadSessionState(
     : null;
 
   const lastTurn = turns[turns.length - 1];
+  const latestToolActivityById = new Map<string, SessionToolActivityEntry>();
+  for (const entry of entries) {
+    if (entry.type === "tool_activity") {
+      latestToolActivityById.set(entry.activityId, entry);
+    }
+  }
+  const toolActivities = Array.from(latestToolActivityById.values()).map((entry) => ({
+      activityId: entry.activityId,
+      kind: "tool_activity" as const,
+      role: "system" as const,
+      status: entry.status,
+      subtitle: entry.subtitle,
+      text: entry.text,
+      timestamp: Date.parse(entry.timestamp) || Date.now(),
+      toolName: entry.toolName,
+    }));
+
   return {
     pendingApproval: pendingApproval ?? undefined,
     pendingFollowUpQuestion:
@@ -242,6 +266,7 @@ export async function loadSessionState(
       pendingPermission?.entry.prompt ??
       (lastTurn?.finalState === "waiting_for_user" ? lastTurn.assistant : undefined),
     pendingPermission: pendingPermission ?? undefined,
+    toolActivities,
     turns,
   };
 }

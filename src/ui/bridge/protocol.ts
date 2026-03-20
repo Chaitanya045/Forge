@@ -29,6 +29,9 @@ export type PermissionReply = z.infer<typeof permissionReplySchema>;
 export const chatRoleSchema = z.enum(["assistant", "system", "user"]);
 export type ChatRole = z.infer<typeof chatRoleSchema>;
 
+export const toolActivityStatusSchema = z.enum(["completed", "error", "running"]);
+export type ToolActivityStatus = z.infer<typeof toolActivityStatusSchema>;
+
 export const bridgeStateSchema = z.object({
   activeToolName: z.string().optional(),
   hasPendingApproval: z.boolean(),
@@ -43,11 +46,15 @@ export const bridgeStateSchema = z.object({
 export type BridgeState = z.infer<typeof bridgeStateSchema>;
 
 export const initialChatMessageSchema = z.object({
+  activityId: z.string().optional(),
   finalState: z.string().optional(),
-  kind: z.enum(["message", "reasoning"]).optional(),
+  kind: z.enum(["message", "reasoning", "tool_activity"]).optional(),
   role: chatRoleSchema,
+  status: toolActivityStatusSchema.optional(),
+  subtitle: z.string().optional(),
   text: z.string(),
   timestamp: z.number().int().nonnegative(),
+  toolName: z.string().optional(),
 });
 export type InitialChatMessage = z.infer<typeof initialChatMessageSchema>;
 
@@ -72,9 +79,20 @@ export const bridgeEventSchema = z.discriminatedUnion("type", [
     type: z.literal("state_update"),
   }),
   z.object({
+    activityId: z.string().min(1),
+    attempt: z.number().int().positive(),
+    status: toolActivityStatusSchema,
+    step: z.number().int().positive(),
+    subtitle: z.string().optional(),
+    text: z.string(),
+    timestamp: z.number().int().nonnegative(),
+    toolName: z.string(),
+    type: z.literal("tool_activity"),
+  }),
+  z.object({
     chunk: z.enum(["delta", "end", "start"]).optional(),
     finalState: z.string().optional(),
-    kind: z.enum(["message", "reasoning"]).optional(),
+    kind: z.enum(["message", "reasoning", "tool_activity"]).optional(),
     role: chatRoleSchema,
     streamId: z.string().min(1).optional(),
     text: z.string(),

@@ -23,6 +23,7 @@ from ..models import (
     ErrorEvent,
     PermissionPromptEvent,
     StateUpdateEvent,
+    ToolActivityEvent,
     ToolStatusEvent,
 )
 from ..protocol import (
@@ -110,6 +111,7 @@ class ZaceTextualApp(App[None]):
         self._show_welcome = True
         self._chat_items: list[ChatItem] = []
         self._chat_stream_index_by_id: dict[str, int] = {}
+        self._tool_activity_index_by_id: dict[str, int] = {}
 
     def compose(self) -> ComposeResult:
         yield Static(id="top_glow")
@@ -179,7 +181,18 @@ class ZaceTextualApp(App[None]):
         has_messages = False
         for message in init_result.messages:
             has_messages = True
-            self._append_chat(message.role, message.text, message.finalState)
+            if message.kind == "tool_activity" and message.activityId:
+                self._upsert_tool_activity(
+                    message.activityId,
+                    message.toolName or "tool",
+                    message.text,
+                    message.status or "completed",
+                    message.subtitle,
+                )
+            else:
+                self._append_chat(
+                    message.role, message.text, message.finalState, message.kind
+                )
 
         if has_messages or int(self._state.get("turnCount", 0)) > 0:
             self._show_welcome = False
@@ -231,6 +244,16 @@ class ZaceTextualApp(App[None]):
                 return
 
             self._append_chat(event.role, event.text, event.finalState, event.kind)
+            return
+
+        if isinstance(event, ToolActivityEvent):
+            self._upsert_tool_activity(
+                event.activityId,
+                event.toolName,
+                event.text,
+                event.status,
+                event.subtitle,
+            )
             return
 
         if isinstance(event, ToolStatusEvent):
@@ -590,6 +613,7 @@ class ZaceTextualApp(App[None]):
         self._dot_phase = 0
         self._chat_items = []
         self._chat_stream_index_by_id = {}
+        self._tool_activity_index_by_id = {}
         self._render_chat()
 
         self._state.update(
@@ -608,14 +632,23 @@ class ZaceTextualApp(App[None]):
         has_messages = False
         for message in init_result.messages:
             has_messages = True
-            self._chat_items.append(
-                {
-                    "final_state": message.finalState,
-                    "kind": None,
-                    "role": message.role,
-                    "text": message.text,
-                }
-            )
+            if message.kind == "tool_activity" and message.activityId:
+                self._upsert_tool_activity(
+                    message.activityId,
+                    message.toolName or "tool",
+                    message.text,
+                    message.status or "completed",
+                    message.subtitle,
+                )
+            else:
+                self._chat_items.append(
+                    {
+                        "final_state": message.finalState,
+                        "kind": message.kind,
+                        "role": message.role,
+                        "text": message.text,
+                    }
+                )
 
         self._show_welcome = not (
             has_messages or int(self._state.get("turnCount", 0)) > 0
@@ -704,6 +737,37 @@ class ZaceTextualApp(App[None]):
         )
         self._render_chat()
 
+    def _upsert_tool_activity(
+        self,
+        activity_id: str,
+        tool_name: str,
+        text: str,
+        status: str,
+        subtitle: str | None = None,
+    ) -> None:
+        if self._show_welcome:
+            self._show_welcome = False
+            self._render_layout_state()
+
+        index = self._tool_activity_index_by_id.get(activity_id)
+        item: ChatItem = {
+            "activity_id": activity_id,
+            "kind": "tool_activity",
+            "role": "system",
+            "status": status,
+            "subtitle": subtitle,
+            "text": text,
+            "tool_name": tool_name,
+        }
+
+        if index is None or index >= len(self._chat_items):
+            self._chat_items.append(item)
+            self._tool_activity_index_by_id[activity_id] = len(self._chat_items) - 1
+        else:
+            self._chat_items[index] = item
+
+        self._render_chat()
+
     def _handle_streaming_chat_event(
         self,
         role: str,
@@ -744,7 +808,15 @@ class ZaceTextualApp(App[None]):
             text = item.get("text", "") or ""
             final_state = item.get("final_state")
             kind = item.get("kind")
-            line = self._build_chat_line(role, text, final_state, kind)
+            line = self._build_chat_line(
+                role,
+                text,
+                final_state,
+                kind,
+                item.get("status"),
+                item.get("subtitle"),
+                item.get("tool_name"),
+            )
             if render_width > 0:
                 log.write(line, width=render_width, expand=True)
             else:
@@ -807,6 +879,9 @@ class ZaceTextualApp(App[None]):
         text: str,
         final_state: str | None,
         kind: str | None = None,
+        status: str | None = None,
+        subtitle: str | None = None,
+        tool_name: str | None = None,
     ) -> Align:
         return build_chat_line(
             role=role,
@@ -814,4 +889,7 @@ class ZaceTextualApp(App[None]):
             final_state=final_state,
             edge_padding=self.CHAT_EDGE_PADDING,
             kind=kind,
+            status=status,
+            subtitle=subtitle,
+            tool_name=tool_name,
         )

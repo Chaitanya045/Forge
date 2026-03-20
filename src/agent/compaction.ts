@@ -1,10 +1,8 @@
 import type { LlmMessage } from "../llm/types";
 import type { AgentConfig } from "../types/config";
 
-import { writeFile } from "node:fs/promises";
-
 import { LlmClient } from "../llm/client";
-import { getSessionFilePath } from "../tools/session";
+import { writeSessionCheckpointContent } from "../tools/session";
 import { logStep } from "../utils/logger";
 import { Memory } from "./memory";
 
@@ -132,8 +130,7 @@ export async function maybeCompactContext(input: {
       input.config.compactionPreserveRecentMessages
     );
     if (compacted && input.memory.sessionId) {
-      const checkpointPath = getSessionFilePath(input.memory.sessionId).replace(/\.jsonl$/u, ".checkpoint.md");
-      await writeFile(checkpointPath, `${summaryResponse.content.trim()}\n`, "utf8");
+      await writeSessionCheckpointContent(input.memory.sessionId, summaryResponse.content);
     }
 
     return {

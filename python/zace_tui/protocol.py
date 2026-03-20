@@ -11,6 +11,7 @@ from .models import (
     ErrorEvent,
     PermissionPromptEvent,
     StateUpdateEvent,
+    ToolActivityEvent,
     ToolStatusEvent,
 )
 
@@ -20,11 +21,15 @@ class ZaceProtocolModel(BaseModel):
 
 
 class InitialChatMessage(ZaceProtocolModel):
+    activityId: str | None = None
     finalState: str | None = None
-    kind: Literal["message", "reasoning"] | None = None
+    kind: Literal["message", "reasoning", "tool_activity"] | None = None
     role: Literal["assistant", "system", "user"]
+    status: Literal["completed", "error", "running"] | None = None
+    subtitle: str | None = None
     text: str
     timestamp: int = Field(ge=0)
+    toolName: str | None = None
 
 
 class InitResult(ZaceProtocolModel):
@@ -78,6 +83,7 @@ class BridgeEventEnvelope(ZaceProtocolModel):
         Union[
             StateUpdateEvent,
             ChatMessageEvent,
+            ToolActivityEvent,
             ToolStatusEvent,
             ApprovalPromptEvent,
             PermissionPromptEvent,
@@ -112,6 +118,7 @@ BridgeEventAdapter = TypeAdapter(
         Union[
             StateUpdateEvent,
             ChatMessageEvent,
+            ToolActivityEvent,
             ToolStatusEvent,
             ApprovalPromptEvent,
             PermissionPromptEvent,

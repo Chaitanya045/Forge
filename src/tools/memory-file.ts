@@ -1,6 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-
 import { z } from "zod";
 
 import type { Tool, ToolResult } from "../types/tool";

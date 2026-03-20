@@ -342,6 +342,37 @@ async def test_tool_status_strip_updates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tool_activity_event_renders_in_chat() -> None:
+    fake_bridge = FakeBridge()
+    app = build_app(fake_bridge)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        app.post_message(
+            BridgeEventMessage(
+                {
+                    "activityId": "1:1:memory_file",
+                    "attempt": 1,
+                    "status": "running",
+                    "step": 1,
+                    "subtitle": "recent messages",
+                    "text": "Reading saved context",
+                    "timestamp": 1,
+                    "toolName": "memory_file",
+                    "type": "tool_activity",
+                }
+            )
+        )
+        await pilot.pause()
+
+        assert any(item.get("kind") == "tool_activity" for item in app._chat_items)
+        assert any(
+            item.get("text") == "Reading saved context" for item in app._chat_items
+        )
+
+
+@pytest.mark.asyncio
 async def test_thinking_strip_updates() -> None:
     fake_bridge = FakeBridge()
     app = build_app(fake_bridge)
