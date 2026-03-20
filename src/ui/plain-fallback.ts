@@ -14,12 +14,16 @@ import {
 import { findOpenPendingPermission, resolvePendingPermissionFromUserMessage } from "../permission/resolve";
 import { SessionProcessor } from "../session/processor/session-processor";
 import { scheduleSessionTitleFromFirstUserMessage } from "../session/session-title";
+import { buildToolActivityId, describeToolActivity } from "../session/tool-activity";
 import { getSessionFilePath, getSessionOpsFilePath } from "../tools/session";
 
-function createPlainStreamObserver(config: AgentConfig): AgentObserver | undefined {
-  if (!config.stream) {
-    return undefined;
-  }
+function createPlainStreamObserver(config: AgentConfig): AgentObserver {
+  const toolActivityInputs = new Map<string, Record<string, unknown>>();
+
+  const printToolActivity = (title: string, subtitle?: string): void => {
+    const suffix = subtitle ? ` - ${subtitle}` : "";
+    process.stdout.write(`\n[tool] ${title}${suffix}\n`);
+  };
 
   return {
     onApprovalRequested: (event) => {
@@ -33,25 +37,66 @@ function createPlainStreamObserver(config: AgentConfig): AgentObserver | undefin
       );
     },
     onExecutorStreamEnd: () => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write("\n");
     },
     onExecutorStreamStart: (event) => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write(`\n\n[LLM:executor:${event.toolName}]\n`);
     },
     onExecutorStreamToken: (event) => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write(event.token);
     },
     onPlannerReasoning: (event) => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write(`\n\n[thinking]\n${event.reasoning}\n`);
     },
     onPlannerStreamEnd: () => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write("\n");
     },
     onPlannerStreamStart: () => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write("\n\n[LLM:planner]\n");
     },
     onPlannerStreamToken: (token) => {
+      if (!config.stream) {
+        return;
+      }
       process.stdout.write(token);
+    },
+    onToolCall: (event) => {
+      const activityId = buildToolActivityId(event.step, event.attempt, event.name);
+      toolActivityInputs.set(activityId, event.arguments);
+      const presentation = describeToolActivity({
+        argumentsObject: event.arguments,
+        status: "running",
+        toolName: event.name,
+      });
+      printToolActivity(presentation.title, presentation.subtitle);
+    },
+    onToolResult: (event) => {
+      const activityId = buildToolActivityId(event.step, event.attempt, event.name);
+      const presentation = describeToolActivity({
+        argumentsObject: toolActivityInputs.get(activityId),
+        status: event.success ? "completed" : "error",
+        toolName: event.name,
+      });
+      toolActivityInputs.delete(activityId);
+      printToolActivity(presentation.title, presentation.subtitle);
     },
   };
 }

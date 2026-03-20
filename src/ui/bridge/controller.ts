@@ -34,7 +34,7 @@ import { findOpenPendingPermission, resolvePendingPermissionFromUserMessage } fr
 import { storePermissionRule } from "../../permission/store";
 import { SessionProcessor } from "../../session/processor/session-processor";
 import { scheduleSessionTitleFromFirstUserMessage } from "../../session/session-title";
-import { describeToolActivity } from "../../session/tool-activity";
+import { buildToolActivityId, describeToolActivity } from "../../session/tool-activity";
 import {
   appendSessionApprovalRule,
   appendSessionToolActivity,
@@ -435,10 +435,6 @@ export class BridgeController {
     });
   }
 
-  private buildToolActivityId(step: number, attempt: number, toolName: string): string {
-    return `${String(step)}:${String(attempt)}:${toolName}`;
-  }
-
   private emitToolActivity(input: {
     activityId: string;
     attempt: number;
@@ -760,7 +756,7 @@ export class BridgeController {
         });
       },
       onToolCall: (event) => {
-        const activityId = this.buildToolActivityId(event.step, event.attempt, event.name);
+        const activityId = buildToolActivityId(event.step, event.attempt, event.name);
         this.toolActivityInputs.set(activityId, event.arguments);
         const presentation = describeToolActivity({
           argumentsObject: event.arguments,
@@ -788,7 +784,7 @@ export class BridgeController {
         });
       },
       onToolResult: (event) => {
-        const activityId = this.buildToolActivityId(event.step, event.attempt, event.name);
+        const activityId = buildToolActivityId(event.step, event.attempt, event.name);
         const presentation = describeToolActivity({
           argumentsObject: this.toolActivityInputs.get(activityId),
           status: event.success ? "completed" : "error",

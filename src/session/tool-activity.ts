@@ -5,6 +5,10 @@ export type ToolActivityPresentation = {
   title: string;
 };
 
+export function buildToolActivityId(step: number, attempt: number, toolName: string): string {
+  return `${String(step)}:${String(attempt)}:${toolName}`;
+}
+
 function clip(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (normalized.length <= maxLength) {
