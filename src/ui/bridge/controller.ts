@@ -13,6 +13,7 @@ import type {
   InitResult,
   InterruptResult,
   ListSessionsResult,
+  PermissionReply,
   SubmitPayload,
   SubmitResult,
 } from "./protocol";
@@ -63,7 +64,8 @@ const STATUS_PROMPT_OPTIONS = {
   ],
   permission: [
     { id: "once", label: "Allow once" },
-    { id: "always", label: "Allow always" },
+    { id: "always_session", label: "Allow always (session)" },
+    { id: "always_workspace", label: "Allow always (workspace)" },
     { id: "reject", label: "Reject" },
   ],
 } as const;
@@ -335,7 +337,7 @@ export class BridgeController {
     };
   }
 
-  async permissionReply(reply: PermissionNext.Reply): Promise<{ ok: boolean }> {
+  async permissionReply(reply: PermissionReply): Promise<{ ok: boolean }> {
     if (!this.pendingPermission) {
       throw new Error("No pending permission to resolve.");
     }
@@ -994,37 +996,44 @@ export class BridgeController {
   }
 
   private async resolvePermissionDecision(
-    reply: PermissionNext.Reply,
+    reply: PermissionReply,
     pendingPermission: OpenPendingPermission
   ): Promise<{
     allowOnce: Array<{ pattern: string; permission: string }>;
     contextNote: string;
     message: string;
   }> {
+    const normalizedReply: PermissionNext.Reply =
+      reply === "always_session" || reply === "always_workspace" || reply === "always"
+        ? "always"
+        : reply;
+    const scope = reply === "always_workspace" ? "workspace" : "session";
+
     await resolvePendingPermissionAction({
       entry: pendingPermission.entry,
-      reply,
+      reply: normalizedReply,
       replyMessage: undefined,
       sessionId: this.sessionId,
     });
 
     const allowOnce =
-      reply === "once"
+      normalizedReply === "once"
         ? pendingPermission.context.patterns.map((pattern) => ({
             pattern,
             permission: pendingPermission.context.permission,
           }))
         : [];
 
-    if (reply === "always") {
+    if (normalizedReply === "always") {
       for (const pattern of pendingPermission.context.always) {
         await storePermissionRule({
           action: "allow",
           config: this.config,
           pattern,
           permission: pendingPermission.context.permission,
-          scope: "session",
+          scope,
           sessionId: this.sessionId,
+          workspaceRoot: process.cwd(),
         });
       }
     }
@@ -1032,10 +1041,14 @@ export class BridgeController {
     return {
       allowOnce,
       contextNote:
-        `Permission resolved by user: ${reply}.\n` +
+        `Permission resolved by user: ${normalizedReply}.\n` +
+        `${normalizedReply === "always" ? `Scope: ${scope}.\n` : ""}` +
         `Permission: ${pendingPermission.context.permission}\n` +
         `Patterns: ${pendingPermission.context.patterns.join(", ")}`,
-      message: `Permission resolved: ${reply}.`,
+      message:
+        normalizedReply === "always"
+          ? `Permission resolved: always (${scope}).`
+          : `Permission resolved: ${normalizedReply}.`,
     };
   }
 }

@@ -7,6 +7,7 @@ import { appendSessionPendingAction, findLatestOpenPendingAction, readSessionEnt
 
 type PendingPermissionContext = {
   always: string[];
+  canPersistWorkspace?: boolean;
   metadata: Record<string, unknown>;
   patterns: string[];
   permission: string;
@@ -28,6 +29,7 @@ function parsePendingPermissionContext(entry: SessionPendingActionEntry): null |
   const requestId = raw.requestId;
   const patterns = raw.patterns;
   const always = raw.always;
+  const canPersistWorkspace = raw.canPersistWorkspace;
   const metadata = raw.metadata;
 
   if (typeof permission !== "string" || permission.length === 0) {
@@ -52,6 +54,7 @@ function parsePendingPermissionContext(entry: SessionPendingActionEntry): null |
 
   return {
     always: always as string[],
+    canPersistWorkspace: canPersistWorkspace === true,
     metadata: metadata as Record<string, unknown>,
     patterns: patterns as string[],
     permission,
@@ -81,6 +84,7 @@ export type OpenPendingPermission = {
 
 export async function createPendingPermissionAction(input: {
   always: string[];
+  canPersistWorkspace?: boolean;
   metadata?: Record<string, unknown>;
   patterns: string[];
   permission: string;
@@ -96,6 +100,7 @@ export async function createPendingPermissionAction(input: {
   await appendSessionPendingAction(input.sessionId, {
     context: {
       always: input.always,
+      canPersistWorkspace: input.canPersistWorkspace === true,
       metadata: input.metadata ?? {},
       patterns: input.patterns,
       permission: input.permission,

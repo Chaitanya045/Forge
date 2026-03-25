@@ -669,9 +669,15 @@ describe("BridgeController command orchestration", () => {
     const sessionPath = getSessionFilePath(sessionId);
     const sessionMetaPath = sessionPath.replace(/\.jsonl$/u, ".meta.json");
     let callCount = 0;
+    let markTitleCallStarted: () => void = () => {
+      // no-op default
+    };
     let releaseTitleCall: () => void = () => {
       // no-op default
     };
+    const titleCallStarted = new Promise<void>((resolve) => {
+      markTitleCallStarted = resolve;
+    });
     const titleCallGate = new Promise<void>((resolve) => {
       releaseTitleCall = resolve;
     });
@@ -690,6 +696,7 @@ describe("BridgeController command orchestration", () => {
             };
           }
 
+          markTitleCallStarted();
           await titleCallGate;
           return {
             content: `{"titles":[{"sessionId":"${sessionId}","title":"Async first turn title"}]}`,
@@ -709,9 +716,14 @@ describe("BridgeController command orchestration", () => {
         kind: "message",
         text: "please help",
       });
+      const titleStarted = await Promise.race([
+        titleCallStarted.then(() => true),
+        delay(1000).then(() => false),
+      ]);
+      expect(titleStarted).toBeTrue();
       const submitResult = await Promise.race([
         submitPromise.then(() => "resolved" as const),
-        delay(200).then(() => "pending" as const),
+        delay(1000).then(() => "pending" as const),
       ]);
 
       expect(submitResult).toBe("resolved");

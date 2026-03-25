@@ -1,3 +1,5 @@
+import { isShellToolName } from "../tools/shell/tool-name";
+
 export type ToolActivityStatus = "completed" | "error" | "running";
 
 export type ToolActivityPresentation = {
@@ -186,7 +188,7 @@ export function describeToolActivity(input: {
     });
   }
 
-  if (input.toolName === "bash" || input.toolName === "execute_command") {
+  if (isShellToolName(input.toolName)) {
     const command = typeof input.argumentsObject?.command === "string" ? input.argumentsObject.command : "";
     const category = classifyBashCommand(command);
     return {

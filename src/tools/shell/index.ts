@@ -36,6 +36,12 @@ import {
   runSpawnedShellCommand,
 } from "./process-lifecycle";
 export { runSpawnedShellCommand, type SpawnedCommandResult } from "./process-lifecycle";
+export {
+  CANONICAL_SHELL_TOOL_NAME,
+  canonicalizeShellToolName,
+  isShellToolName,
+} from "./tool-name";
+import { CANONICAL_SHELL_TOOL_NAME } from "./tool-name";
 
 export const executeCommandSchema = z.object({
   command: z.string().min(1),
@@ -99,7 +105,7 @@ export function buildExecuteCommandSignature(command: string, workingDirectory: 
     cwd: resolve(workingDirectory),
   };
 
-  return `execute_command|${stableStringify(signaturePayload)}`;
+  return `${CANONICAL_SHELL_TOOL_NAME}|${stableStringify(signaturePayload)}`;
 }
 
 export function detectCommandProgressSignal(input: {

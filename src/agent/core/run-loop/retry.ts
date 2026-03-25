@@ -1,5 +1,7 @@
 import type { ToolCallLike } from "./types";
 
+import { isShellToolName } from "../../../tools/shell/tool-name";
+
 function parseNonNegativeInteger(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
@@ -23,7 +25,7 @@ export function getRetryConfiguration(
   maxRetries: number;
   retryMaxDelayMs?: number;
 } {
-  if (toolCall.name !== "execute_command" && toolCall.name !== "bash") {
+  if (!isShellToolName(toolCall.name)) {
     return {
       maxRetries: defaults.maxRetries,
       retryMaxDelayMs: defaults.retryMaxDelayMs,

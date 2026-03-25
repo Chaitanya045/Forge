@@ -6,11 +6,15 @@ import { createPendingPermissionAction } from "./pending";
 
 export function buildPermissionPrompt(request: {
   always: string[];
+  canPersistWorkspace?: boolean;
   patterns: string[];
   permission: string;
 }): string {
   const patternsBlock = request.patterns.length > 0 ? request.patterns.join("\n") : "(none)";
   const alwaysBlock = request.always.length > 0 ? request.always.join("\n") : "(none)";
+  const choices = request.canPersistWorkspace
+    ? ["- once", "- always session", "- always workspace", "- reject"]
+    : ["- once", "- always", "- reject"];
   return [
     `Permission required: ${request.permission}`,
     "Patterns:",
@@ -20,9 +24,7 @@ export function buildPermissionPrompt(request: {
     alwaysBlock,
     "",
     "Reply with one of:",
-    "- once",
-    "- always",
-    "- reject",
+    ...choices,
   ].join("\n");
 }
 
@@ -68,12 +70,14 @@ export async function requirePermission(input: {
     const always = [pattern];
     const prompt = buildPermissionPrompt({
       always,
+      canPersistWorkspace: true,
       patterns: input.patterns,
       permission: input.permission,
     });
 
     await createPendingPermissionAction({
       always,
+      canPersistWorkspace: true,
       metadata: input.metadata,
       patterns: input.patterns,
       permission: input.permission,

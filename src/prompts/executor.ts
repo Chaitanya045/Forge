@@ -5,6 +5,33 @@ export interface ExecutorRetryContext {
   maxRetries: number;
 }
 
+export interface ExecutorSystemPromptContext {
+  availableTools?: string[];
+  currentDirectory?: string;
+}
+
+const EXECUTOR_SYSTEM_PROMPT_LINES = [
+  "You are the EXECUTOR analysis component for a coding agent.",
+  "Your only job is to analyze a completed tool result.",
+  "Focus on whether the tool call succeeded, what changed, and whether retrying the same call is likely to help.",
+  "Do not plan new tasks, ask the user questions, or restate the full system policy.",
+  "Prefer conservative retry advice. Only suggest retry when the failure looks transient.",
+];
+
+export function buildExecutorSystemPrompt(context?: ExecutorSystemPromptContext): string {
+  const sections = [EXECUTOR_SYSTEM_PROMPT_LINES.join("\n")];
+
+  if (context?.availableTools && context.availableTools.length > 0) {
+    sections.push(`TOOL UNDER ANALYSIS:\n- ${context.availableTools.join("\n- ")}`);
+  }
+
+  if (context?.currentDirectory) {
+    sections.push(`CURRENT DIRECTORY: ${context.currentDirectory}`);
+  }
+
+  return sections.join("\n\n");
+}
+
 export function buildExecutorPrompt(
   toolCall: ToolCall,
   toolResult: ToolResult,

@@ -46,4 +46,25 @@ describe("agent guardrails", () => {
 
     expect(signatureA).not.toBe(signatureB);
   });
+
+  test("canonicalizes shell tool aliases in loop signatures", () => {
+    const signatureA = buildToolLoopSignature({
+      argumentsObject: {
+        command: "echo hello",
+      },
+      output: "ok",
+      success: true,
+      toolName: "bash",
+    });
+    const signatureB = buildToolLoopSignature({
+      argumentsObject: {
+        command: "echo hello",
+      },
+      output: "ok",
+      success: true,
+      toolName: "execute_command",
+    });
+
+    expect(signatureA).toBe(signatureB);
+  });
 });

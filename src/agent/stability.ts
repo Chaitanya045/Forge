@@ -2,6 +2,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import type { AgentStep } from "../types/agent";
 
+import { canonicalizeShellToolName, isShellToolName } from "../tools/shell/tool-name";
 import { stableStringify } from "../utils/stable-json";
 
 const PROGRESS_SIGNALS = new Set([
@@ -140,8 +141,8 @@ export function buildToolCallSignature(
     workingDirectory?: string;
   }
 ): string {
-  const canonicalToolName = toolName === "bash" ? "execute_command" : toolName;
-  if (canonicalToolName !== "execute_command") {
+  const canonicalToolName = canonicalizeShellToolName(toolName);
+  if (!isShellToolName(canonicalToolName)) {
     return `${toolName}|${stableStringify(argumentsObject)}`;
   }
 
@@ -161,7 +162,7 @@ export function buildToolCallSignature(
     );
   }
 
-  return `${toolName}|${stableStringify(signatureArguments)}`;
+  return `${canonicalToolName}|${stableStringify(signatureArguments)}`;
 }
 
 export function detectPreExecutionDoomLoop(input: {

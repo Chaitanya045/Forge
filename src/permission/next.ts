@@ -19,6 +19,9 @@ export namespace PermissionNext {
   export const replySchema = z.enum(["always", "once", "reject"]);
   export type Reply = z.infer<typeof replySchema>;
 
+  export const storedScopeSchema = z.enum(["session", "workspace"]);
+  export type StoredScope = z.infer<typeof storedScopeSchema>;
+
   export const requestSchema = z.object({
     always: z.array(z.string().min(1)),
     id: z.string().min(1),

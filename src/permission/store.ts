@@ -8,8 +8,24 @@ import { PermissionNext } from "./next";
 
 export type PermissionRuleScope = "session" | "workspace";
 
-// For now we store workspace rules only in the session JSONL to keep changes minimal.
-// This mirrors the existing approval_rule entry behavior and keeps persistence auditable.
+function normalizeWorkspaceRoot(workspaceRoot?: string): string {
+  return resolve(workspaceRoot ?? process.cwd());
+}
+
+function isWorkspaceScopedRuleApplicable(
+  entry: SessionPermissionRuleEntry,
+  workspaceRoot: string
+): boolean {
+  if (entry.scope !== "workspace") {
+    return true;
+  }
+
+  if (!entry.workspaceRoot) {
+    return false;
+  }
+
+  return resolve(entry.workspaceRoot) === workspaceRoot;
+}
 
 export async function readPermissionRulesFromSession(input: {
   sessionId: string;
@@ -27,15 +43,10 @@ export async function loadPermissionRuleset(input: {
     return [];
   }
 
-  const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd());
+  const workspaceRoot = normalizeWorkspaceRoot(input.workspaceRoot);
   const entries = await readPermissionRulesFromSession({ sessionId: input.sessionId });
   return entries
-    .filter((entry) => {
-      if (entry.scope === "workspace") {
-        return resolve(entry.pattern ? workspaceRoot : workspaceRoot) === workspaceRoot;
-      }
-      return true;
-    })
+    .filter((entry) => isWorkspaceScopedRuleApplicable(entry, workspaceRoot))
     .map((entry) => ({
       action: entry.action,
       pattern: entry.pattern,
@@ -50,6 +61,7 @@ export async function storePermissionRule(input: {
   permission: string;
   scope: PermissionRuleScope;
   sessionId: string;
+  workspaceRoot?: string;
 }): Promise<void> {
   if (!input.config.approvalMemoryEnabled) {
     return;
@@ -60,5 +72,9 @@ export async function storePermissionRule(input: {
     pattern: input.pattern,
     permission: input.permission,
     scope: input.scope,
+    workspaceRoot:
+      input.scope === "workspace"
+        ? normalizeWorkspaceRoot(input.workspaceRoot)
+        : undefined,
   });
 }

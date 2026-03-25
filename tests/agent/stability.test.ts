@@ -46,6 +46,20 @@ describe("agent stability helpers", () => {
     expect(signatureA).toBe(signatureB);
   });
 
+  test("canonicalizes bash and execute_command signatures identically", () => {
+    const repositoryRoot = resolve("/tmp/zace-signature-root");
+    const signatureA = buildToolCallSignature("bash", {
+      command: "ls src",
+      cwd: repositoryRoot,
+    });
+    const signatureB = buildToolCallSignature("execute_command", {
+      command: "ls src",
+      cwd: repositoryRoot,
+    });
+
+    expect(signatureA).toBe(signatureB);
+  });
+
   test("detects stagnation when recent tool calls have no progress", () => {
     const stagnation = detectStagnation({
       steps: [

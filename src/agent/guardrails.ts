@@ -1,3 +1,5 @@
+import { canonicalizeShellToolName } from "../tools/shell/tool-name";
+
 const COMMAND_OUTPUT_LIMIT_FOR_SIGNATURE = 400;
 
 function normalizeOutputForSignature(output: string): string {
@@ -19,7 +21,7 @@ export function buildToolLoopSignature(input: {
 }): string {
   const normalizedOutput = normalizeOutputForSignature(input.output);
   return [
-    input.toolName,
+    canonicalizeShellToolName(input.toolName),
     JSON.stringify(input.argumentsObject),
     input.success ? "success" : "failure",
     normalizedOutput,

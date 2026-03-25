@@ -7,7 +7,7 @@ import type { AgentConfig } from "../../types/config";
 import type { AbortSignalLike, ToolExecutionContext, ToolResult } from "../../types/tool";
 import type { AgentObserver } from "../observer";
 import type { AgentProcessorEvent } from "../stream-events";
-import type { CommandApprovalResult, RunLoopMutableState, ToolCallLike } from "./run-loop/types";
+import type { RunLoopMutableState, ToolCallLike } from "./run-loop/types";
 
 import {
   ensureBrainStructure,
@@ -25,24 +25,19 @@ import { createJsonlSessionStore } from "../../session/store-jsonl";
 import { modelVisibleTools } from "../../tools";
 import { getSessionFilePath } from "../../tools/session";
 import { log, logError, logStep } from "../../utils/logger";
-import {
-  buildApprovalCommandSignature,
-  buildPendingApprovalPrompt,
-  createPendingApprovalAction,
-  findApprovalRuleDecision,
-} from "../approval";
 import { maybeCompactContext } from "../compaction";
-import { describeCompletionPlan, resolveCompletionPlan } from "../completion";
+import { describeCompletionPlan } from "../completion";
 import { executeToolCall } from "../executor";
 import { Memory } from "../memory";
 import { plan } from "../planner";
-import { addStep, createInitialContext, transitionState } from "../state";
-import { getDestructiveCommandReason } from "./run-loop/command-safety";
+import { addStep, transitionState } from "../state";
+import { createCommandApprovalResolver } from "./run-loop/command-approval";
 import { handleCompletionPhase } from "./run-loop/completion-phase";
 import { handleExecutionPhase } from "./run-loop/execution-phase";
 import { emitPlannerTelemetry } from "./run-loop/planner-telemetry";
 import { appendRunEvent } from "./run-loop/run-events";
 import { runStartupPhase } from "./run-loop/startup";
+import { createRunLoopState } from "./run-loop/state-factory";
 
 export { extractOverwriteRedirectTargets } from "./run-loop/command-safety";
 
@@ -136,37 +131,13 @@ export async function runAgentLoop(
     sessionId,
   });
   const sessionStore = sessionId ? createJsonlSessionStore(sessionId) : undefined;
-  const loopState: RunLoopMutableState = {
-    completionBlockedReason: null,
-    completionBlockedReasonRepeatCount: 0,
-    completionPlan: resolveCompletionPlan(task),
-    consecutiveNoToolContinues: 0,
-    context: createInitialContext(task, config.maxSteps),
-    inspectionLoopRecoverySignatures: new Set<string>(),
-    lastCompletionGateFailure: null,
-    lastExecutionWorkingDirectory: process.cwd(),
-    lastSuccessfulPlannerDecision: undefined,
-    lastSuccessfulValidationStep: undefined,
-    lastToolLoopSignature: "",
-    lastToolLoopSignatureCount: 0,
-    lastWriteLspErrorCount: undefined,
-    lastWriteStep: undefined,
-    lastWriteWorkingDirectory: undefined,
-    lspBootstrap: {
-      attemptedCommands: [],
-      lastFailureReason: null,
-      pendingChangedFiles: new Set<string>(),
-      provisionAttempts: 0,
-      state: "idle",
-    },
-    toolCallSignatureHistory: [],
-  };
+  const loopState: RunLoopMutableState = createRunLoopState(task, config.maxSteps);
   const lspServerConfigAbsolutePath = resolve(config.lspServerConfigPath);
   const onceApprovedSignatures = new Set(options?.approvedCommandSignaturesOnce ?? []);
   const permissionRuleset = await loadPermissionRuleset({
     config,
     sessionId,
-    workspaceRoot: process.cwd(),
+    workspaceRoot,
   });
   const permissionMemory = createPermissionMemory(permissionRuleset);
   for (const entry of options?.approvedPermissionsOnce ?? []) {
@@ -174,6 +145,14 @@ export async function runAgentLoop(
   }
   const runToolCall = options?.executeToolCall ?? executeToolCall;
   const getCompletionCriteria = (): string[] => describeCompletionPlan(loopState.completionPlan);
+  const resolveCommandApproval = createCommandApprovalResolver({
+    client,
+    config,
+    onceApprovedSignatures,
+    runId,
+    sessionId,
+    workspaceRoot,
+  });
   await initializeTurnWorkingMemory({
     sessionId,
     task,
@@ -312,77 +291,6 @@ export async function runAgentLoop(
   const resetCompletionBlockLoopGuard = (): void => {
     loopState.completionBlockedReason = null;
     loopState.completionBlockedReasonRepeatCount = 0;
-  };
-    const resolveCommandApproval = async (input: {
-      command: string;
-      workingDirectory?: string;
-    }): Promise<CommandApprovalResult> => {
-    const destructiveReason = await getDestructiveCommandReason(client, config, input.command, {
-      workingDirectory: input.workingDirectory,
-    });
-    if (!destructiveReason) {
-      return {
-        requiredApproval: false,
-        scope: "once",
-        status: "allow",
-      };
-    }
-
-    const commandSignature = buildApprovalCommandSignature(input.command, input.workingDirectory);
-    if (onceApprovedSignatures.has(commandSignature)) {
-      onceApprovedSignatures.delete(commandSignature);
-      return {
-        requiredApproval: true,
-        scope: "once",
-        status: "allow",
-      };
-    }
-
-    const savedRule = await findApprovalRuleDecision({
-      commandSignature,
-      config,
-      sessionId,
-    });
-    if (savedRule) {
-      if (savedRule.decision === "allow") {
-        return {
-          requiredApproval: true,
-          scope: savedRule.scope,
-          status: "allow",
-        };
-      }
-      return {
-        message:
-          `Command denied by saved ${savedRule.scope} approval rule.\n` +
-          `Command: ${input.command}\n` +
-          `Rule pattern: ${savedRule.pattern}`,
-        scope: savedRule.scope,
-        status: "deny",
-      };
-    }
-
-    const confirmationMessage = buildPendingApprovalPrompt({
-      command: input.command,
-      reason: destructiveReason,
-      riskyConfirmationToken: config.riskyConfirmationToken,
-    });
-    if (sessionId && config.approvalMemoryEnabled) {
-      await createPendingApprovalAction({
-        command: input.command,
-        commandSignature,
-        prompt: confirmationMessage,
-        reason: destructiveReason,
-        runId,
-        sessionId,
-        workingDirectory: input.workingDirectory,
-      });
-    }
-    return {
-      commandSignature,
-      message: confirmationMessage,
-      reason: destructiveReason,
-      status: "request_user",
-    };
   };
 
   const systemPrompt = buildSystemPrompt({

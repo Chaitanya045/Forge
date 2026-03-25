@@ -23,7 +23,13 @@ export const approvalDecisionSchema = z.enum([
 ]);
 export type ApprovalDecision = z.infer<typeof approvalDecisionSchema>;
 
-export const permissionReplySchema = z.enum(["always", "once", "reject"]);
+export const permissionReplySchema = z.enum([
+  "always",
+  "always_session",
+  "always_workspace",
+  "once",
+  "reject",
+]);
 export type PermissionReply = z.infer<typeof permissionReplySchema>;
 
 export const chatRoleSchema = z.enum(["assistant", "system", "user"]);

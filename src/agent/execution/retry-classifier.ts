@@ -1,5 +1,7 @@
 import type { ToolCall, ToolResult } from "../../types/tool";
 
+import { isShellToolName } from "../../tools/shell/tool-name";
+
 export type RetryCategory = "non_transient" | "transient" | "unknown";
 
 export type RetryClassification = {
@@ -50,7 +52,7 @@ export function classifyRetry(toolCall: ToolCall, toolResult: ToolResult): Retry
   const outputMessage = normalizeMessage(toolResult.output);
   const combined = `${errorMessage}\n${outputMessage}`.trim();
 
-  if (toolCall.name === "execute_command" || toolCall.name === "bash") {
+  if (isShellToolName(toolCall.name)) {
     if (/\btimed out\b/iu.test(combined)) {
       return {
         category: "transient",

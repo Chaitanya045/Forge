@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type { OpenPendingApproval } from "../agent/approval";
-import type { AgentResult } from "../agent/loop";
 import type { LlmClient } from "../llm/client";
 import type { OpenPendingPermission } from "../permission/pending";
 import type { AgentConfig } from "../types/config";
@@ -11,14 +10,14 @@ import { findOpenPendingApproval, resolveApprovalFromUserReply } from "../agent/
 import { findOpenPendingPermission } from "../permission/pending";
 import {
   appendSessionEntries,
-  appendSessionMessage,
   normalizeSessionId,
   readSessionEntries,
   readSessionCheckpoint,
   readSessionMessages,
   type SessionToolActivityEntry,
-  writeSessionCheckpoint,
 } from "../tools/session";
+
+export { persistSessionTurn } from "../session/persist-turn";
 
 export type ChatTurn = {
   assistant: string;
@@ -289,63 +288,6 @@ export async function resolvePendingApprovalFromUserMessage(input: {
     sessionId: input.sessionId,
     userMessage: input.userInput,
   });
-}
-
-export async function persistSessionTurn(
-  sessionId: string,
-  userMessage: string,
-  task: string,
-  result: AgentResult,
-  startedAt: Date,
-  endedAt: Date
-): Promise<void> {
-  const startedAtIso = startedAt.toISOString();
-  const endedAtIso = endedAt.toISOString();
-  const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
-  const summary = result.message;
-
-  await appendSessionMessage(sessionId, {
-    content: userMessage,
-    role: "user",
-    timestamp: startedAtIso,
-  });
-  await appendSessionMessage(sessionId, {
-    content: result.message,
-    role: "assistant",
-    timestamp: endedAtIso,
-  });
-  await writeSessionCheckpoint({
-    finalState: result.finalState,
-    sessionId,
-    summary,
-    task,
-    timestamp: endedAtIso,
-    userMessage,
-  });
-
-  await appendSessionEntries(sessionId, [
-    {
-      finalState: result.finalState,
-      success: result.success,
-      summary,
-      timestamp: endedAtIso,
-      type: "summary",
-    },
-    {
-      assistantMessage: result.message,
-      durationMs,
-      endedAt: endedAtIso,
-      finalState: result.finalState,
-      sessionId,
-      startedAt: startedAtIso,
-      steps: result.context.steps.length,
-      success: result.success,
-      summary,
-      task,
-      type: "run",
-      userMessage,
-    },
-  ]);
 }
 
 async function readLatestSessionCheckpoint(sessionId: string): Promise<string | undefined> {

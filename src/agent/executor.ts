@@ -4,8 +4,11 @@ import type { LlmClient } from "../llm/client";
 import type { AbortSignalLike, ToolCall, ToolExecutionContext, ToolResult } from "../types/tool";
 
 import { buildBrainContextMessage } from "../brain";
-import { buildExecutorPrompt, type ExecutorRetryContext } from "../prompts/executor";
-import { buildSystemPrompt } from "../prompts/system";
+import {
+  buildExecutorPrompt,
+  buildExecutorSystemPrompt,
+  type ExecutorRetryContext,
+} from "../prompts/executor";
 import { toolRegistry } from "../tools";
 import { ToolExecutionError, ValidationError } from "../utils/errors";
 import { log, logStep, logToolCall, logToolResult } from "../utils/logger";
@@ -99,7 +102,7 @@ export async function analyzeToolResult(
   });
 
   // Build focused system prompt for execution analysis
-  const systemPrompt = buildSystemPrompt({
+  const systemPrompt = buildExecutorSystemPrompt({
     availableTools: [toolCall.name],
     currentDirectory: process.cwd(),
   });

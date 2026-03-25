@@ -1,9 +1,14 @@
-import type { AgentContext, AgentState } from "../../../../types/agent";
 import type { AgentConfig } from "../../../../types/config";
 import type { ToolResult } from "../../../../types/tool";
 import type { AgentObserver } from "../../../observer";
 import type { RunLoopMutableState } from "../types";
+import type {
+  ExecutionMemory,
+  ExecutionProgressOutcome,
+  FinalizeExecutionResult,
+} from "./shared";
 
+import { isShellToolName } from "../../../../tools/shell/tool-name";
 import { logStep } from "../../../../utils/logger";
 import { buildToolCallSignature, detectStagnation } from "../../../stability";
 import { addStep } from "../../../state";
@@ -49,7 +54,7 @@ export function hasPriorSuccessfulNoChangeResult(
       continue;
     }
 
-    const signature = (step.toolCall.name === "execute_command" || step.toolCall.name === "bash")
+    const signature = isShellToolName(step.toolCall.name)
       ? buildToolCallSignature(
           step.toolCall.name,
           {
@@ -73,29 +78,12 @@ export function hasPriorSuccessfulNoChangeResult(
 }
 
 export async function handleNoToolCallProgress<TResult>(input: {
-  finalizeResult: (
-    result: {
-      context: AgentContext;
-      finalState: AgentState;
-      message: string;
-      success: boolean;
-    },
-    step: number,
-    reason: string
-  ) => Promise<TResult>;
-  memory: {
-    addMessage: (
-      role: "assistant" | "system" | "tool" | "user",
-      content: string
-    ) => void;
-  };
+  finalizeResult: FinalizeExecutionResult<TResult>;
+  memory: ExecutionMemory;
   planReasoning: string;
   state: RunLoopMutableState;
   stepNumber: number;
-}): Promise<
-  | { kind: "continue_loop" }
-  | { kind: "finalized"; result: TResult }
-> {
+}): Promise<ExecutionProgressOutcome<TResult>> {
   input.state.consecutiveNoToolContinues += 1;
   logStep(input.stepNumber, "No tool call specified, continuing...");
   input.state.context = addStep(input.state.context, {
@@ -125,22 +113,8 @@ export async function handleNoToolCallProgress<TResult>(input: {
 
 export async function maybeFinalizeReadonlyStagnationGuard<TResult>(input: {
   config: AgentConfig;
-  finalizeResult: (
-    result: {
-      context: AgentContext;
-      finalState: AgentState;
-      message: string;
-      success: boolean;
-    },
-    step: number,
-    reason: string
-  ) => Promise<TResult>;
-  memory: {
-    addMessage: (
-      role: "assistant" | "system" | "tool" | "user",
-      content: string
-    ) => void;
-  };
+  finalizeResult: FinalizeExecutionResult<TResult>;
+  memory: ExecutionMemory;
   observer?: AgentObserver;
   runId: string;
   sessionId?: string;
@@ -157,7 +131,7 @@ export async function maybeFinalizeReadonlyStagnationGuard<TResult>(input: {
     .slice(-recentWindow);
   const hasEnough = recentSinceWrite.length >= recentWindow;
   const allReadonlyInspection = recentSinceWrite.every((step) => {
-    if (step.toolCall?.name !== "execute_command" && step.toolCall?.name !== "bash") {
+    if (!step.toolCall || !isShellToolName(step.toolCall.name)) {
       return false;
     }
     const changed = step.toolResult?.artifacts?.changedFiles ?? [];
@@ -206,23 +180,9 @@ export async function maybeFinalizeReadonlyStagnationGuard<TResult>(input: {
 }
 
 export async function maybeFinalizeRepetitionGuard<TResult>(input: {
-  finalizeResult: (
-    result: {
-      context: AgentContext;
-      finalState: AgentState;
-      message: string;
-      success: boolean;
-    },
-    step: number,
-    reason: string
-  ) => Promise<TResult>;
+  finalizeResult: FinalizeExecutionResult<TResult>;
   loopSignature: string;
-  memory: {
-    addMessage: (
-      role: "assistant" | "system" | "tool" | "user",
-      content: string
-    ) => void;
-  };
+  memory: ExecutionMemory;
   observer?: AgentObserver;
   runId: string;
   sessionId?: string;
